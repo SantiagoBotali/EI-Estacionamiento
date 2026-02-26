@@ -220,7 +220,8 @@
         const data = await res.json();
         showTicket(data);
         setState('ticket');
-        startCountdown(5000);
+        openTicketPopup(data.ticket_code, data.entry_at, data.barcode_svg);
+        startCountdown(10000);
       } catch (err) {
         console.error('Error al crear ingreso:', err);
         setState('idle');
@@ -239,6 +240,53 @@
         });
 
       document.getElementById('tc-barcode').innerHTML = data.barcode_svg;
+    }
+
+    // ── Ticket PDF popup (igual que panel de empleado) ───────────────────────
+    function openTicketPopup(ticketCode, entryAt, barcodeSvg) {
+      const entryFormatted = new Date(entryAt).toLocaleString('es-AR', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit'
+      });
+      const win = window.open('', '_blank', 'width=440,height=620');
+      if (!win) return; // bloqueado por el navegador
+      win.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <title>Ticket ${ticketCode}</title>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #f3f4f6; display: flex; justify-content: center; padding: 2rem; }
+    .ticket { max-width: 360px; width: 100%; border: 2px dashed #555; border-radius: 12px; padding: 28px 24px; background: #fff; display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+    .logo { font-size: 2.5rem; }
+    .title { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.05em; text-align: center; }
+    .subtitle { font-size: 0.85rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; }
+    .code { font-size: 1.6rem; font-weight: 900; font-family: monospace; letter-spacing: 3px; background: #f9fafb; border-radius: 8px; padding: 0.4rem 1rem; }
+    .entry-label { font-size: 0.75rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.06em; }
+    .entry-val { font-size: 1rem; font-weight: 600; }
+    .barcode { width: 100%; background: #fff; }
+    .barcode svg { width: 100%; height: auto; display: block; }
+    hr { width: 100%; border: none; border-top: 1px dashed #d1d5db; }
+    .print-btn { background: #16a34a; color: #fff; border: none; border-radius: 8px; padding: 0.6rem 1.5rem; font-size: 1rem; cursor: pointer; }
+    @media print { .print-btn { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="ticket">
+    <div class="logo">🅿</div>
+    <div class="title">ESTACIONAMIENTO SDG</div>
+    <div class="subtitle">Comprobante de Ingreso</div>
+    <div class="code">${ticketCode}</div>
+    <div class="entry-label">Hora de Ingreso</div>
+    <div class="entry-val">${entryFormatted}</div>
+    <div class="barcode">${barcodeSvg}</div>
+    <hr/>
+    <button class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+  </div>
+  <script>window.onload = () => { window.focus(); window.print(); }<\/script>
+</body>
+</html>`);
+      win.document.close();
     }
 
     // ── 5-second countdown then reset ───────────────────────────────────────
