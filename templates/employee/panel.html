@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel de Empleado</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .tab-btn.active { border-bottom: 3px solid #3b82f6; color: #3b82f6; }
+
+    /* Mini map */
+    #mini-lot { position: relative; background: #222; border-radius: 8px; overflow: hidden; width: 300px; height: 400px; }
+    #mini-lines { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+    .m-lot-line { position: absolute; background: rgba(255,255,255,0.9); border-radius: 1px; }
+    .m-lot-line.v { width: 2px; } .m-lot-line.h { height: 2px; }
+    .m-spot { position: absolute; z-index: 1; }
+    .m-spot.empty { background: rgba(46,204,113,0.5); }
+    .m-spot.occupied { background: rgba(239,68,68,0.7); }
+
+    /* Toast */
+    #toast { position: fixed; bottom: 24px; right: 24px; z-index: 9999; }
+    .toast-msg { padding: 12px 20px; border-radius: 10px; margin-top: 8px; font-size: 0.9rem; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.4); animation: slideIn 0.3s ease; }
+    .toast-msg.success { background: #065f46; }
+    .toast-msg.error   { background: #7f1d1d; }
+    .toast-msg.info    { background: #1e3a5f; }
+    @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: none; opacity: 1; } }
+
+    .demo-slot-btn { padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border: none; }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+  <!-- Navbar -->
+  <nav class="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-2xl">🅿</span>
+      <span class="font-bold text-lg">Panel Empleado</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="text-sm text-gray-400" id="nav-user"></span>
+      <button onclick="logout()" class="text-sm text-red-400 hover:text-red-300">
+        <i class="fa fa-sign-out-alt"></i> Salir
+      </button>
+    </div>
+  </nav>
+
+  <!-- Tabs -->
+  <div class="bg-gray-800 border-b border-gray-700 flex overflow-x-auto">
+    <button class="tab-btn active px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="switchTab('map')">
+      <i class="fa fa-map mr-1"></i> Mapa
+    </button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="switchTab('camera')">
+      <i class="fa fa-video mr-1"></i> Cámara
+    </button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="switchTab('search')">
+      <i class="fa fa-search mr-1"></i> Buscar Estadía
+    </button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="switchTab('active')">
+      <i class="fa fa-list mr-1"></i> Activas
+    </button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="switchTab('new')">
+      <i class="fa fa-plus mr-1"></i> Nueva Estadía
+    </button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="switchTab('demo')">
+      <i class="fa fa-flask mr-1"></i> Demo
+    </button>
+  </div>
+
+  <!-- Tab: Mapa -->
+  <div id="tab-map" class="tab-content active p-4">
+    <h2 class="text-lg font-semibold mb-4">Mapa en Vivo</h2>
+    <div class="flex flex-col md:flex-row gap-6 items-start">
+      <div>
+        <div id="mini-lot"><div id="mini-lines"></div></div>
+      </div>
+      <div class="flex-1">
+        <div class="grid grid-cols-2 gap-4">
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div class="text-3xl font-bold text-green-400" id="stat-free">—</div>
+            <div class="text-sm text-gray-400 mt-1">Lugares Libres</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div class="text-3xl font-bold text-red-400" id="stat-occ">—</div>
+            <div class="text-sm text-gray-400 mt-1">Ocupados</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div class="text-3xl font-bold text-blue-400" id="stat-total">—</div>
+            <div class="text-sm text-gray-400 mt-1">Total</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 text-center">
+            <div class="text-3xl font-bold text-yellow-400" id="stat-pct">—</div>
+            <div class="text-sm text-gray-400 mt-1">Ocupación</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Cámara -->
+  <div id="tab-camera" class="tab-content p-4">
+    <h2 class="text-lg font-semibold mb-4">Feed de Cámara</h2>
+    <div class="flex justify-center">
+      <img id="camera-img" class="rounded-xl border border-gray-700 max-w-full" style="max-height:500px;"
+           alt="Feed de cámara" />
+    </div>
+    <p class="text-xs text-gray-500 text-center mt-2">Stream MJPEG en tiempo real desde el detector</p>
+  </div>
+
+  <!-- Tab: Buscar Estadía -->
+  <div id="tab-search" class="tab-content p-4 max-w-lg">
+    <h2 class="text-lg font-semibold mb-4">Buscar Estadía</h2>
+    <div class="flex gap-2 mb-4">
+      <input id="search-query" type="text" placeholder="Código de ticket o UUID de barcode"
+        class="flex-1 px-4 py-2 rounded-lg bg-gray-700 border border-gray-600 text-white focus:outline-none focus:border-blue-500" />
+      <button onclick="searchStay()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold">
+        <i class="fa fa-search"></i>
+      </button>
+    </div>
+    <div id="search-result" class="hidden"></div>
+  </div>
+
+  <!-- Tab: Estadías Activas -->
+  <div id="tab-active" class="tab-content p-4">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold">Estadías Activas / Pendientes</h2>
+      <button onclick="loadActiveStays()" class="text-sm px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg">
+        <i class="fa fa-refresh mr-1"></i> Actualizar
+      </button>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-gray-400 border-b border-gray-700">
+            <th class="text-left py-2 pr-4">Código</th>
+            <th class="text-left py-2 pr-4">Ingreso</th>
+            <th class="text-left py-2 pr-4">Estado</th>
+            <th class="text-left py-2 pr-4">Monto Est.</th>
+            <th class="text-left py-2">Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="active-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tab: Nueva Estadía -->
+  <div id="tab-new" class="tab-content p-4 max-w-md">
+    <h2 class="text-lg font-semibold mb-4">Registrar Ingreso</h2>
+    <form id="new-stay-form" class="space-y-4">
+      <div>
+        <label class="block text-sm text-gray-300 mb-1">Notas (opcional)</label>
+        <input type="text" id="new-notes" placeholder="Ej: Patente ABC123"
+          class="w-full px-4 py-2 rounded-lg bg-gray-700 border border-gray-600 text-white focus:outline-none focus:border-blue-500" />
+      </div>
+      <button type="submit" class="w-full py-3 bg-green-600 hover:bg-green-700 rounded-lg font-semibold">
+        <i class="fa fa-car mr-2"></i> Registrar Ingreso
+      </button>
+    </form>
+  </div>
+
+  <!-- Tab: Demo -->
+  <div id="tab-demo" class="tab-content p-4">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-lg font-semibold">Modo Demo</h2>
+        <p class="text-sm text-gray-400 mt-1">Simula ocupación en slots específicos (útil con video vacío)</p>
+      </div>
+      <button onclick="resetDemo()" class="text-sm px-3 py-1 bg-red-900 hover:bg-red-800 rounded-lg text-red-300">
+        <i class="fa fa-undo mr-1"></i> Resetear Todo
+      </button>
+    </div>
+    <div id="demo-slots-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"></div>
+  </div>
+
+  <!-- Modal: Cobro en Efectivo -->
+  <div id="cash-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div class="bg-gray-800 rounded-xl p-6 w-80 border border-gray-600 shadow-2xl">
+      <h3 class="text-lg font-semibold mb-3">Cobrar en Efectivo</h3>
+      <p class="text-sm text-gray-400 mb-1">Monto a cobrar:</p>
+      <p class="text-4xl font-bold text-green-400 mb-5" id="modal-amount">$0</p>
+      <div class="flex gap-2">
+        <button onclick="confirmCash()"
+          class="flex-1 py-2 bg-green-700 hover:bg-green-600 rounded-lg text-sm font-semibold">
+          <i class="fa fa-check mr-1"></i> Confirmar
+        </button>
+        <button onclick="closeCashModal()"
+          class="flex-1 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg text-sm">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast"></div>
+
+  <script>
+    const API = '';
+    let authHeaders = {};
+
+    // ── Auth ──
+    function getToken() { return localStorage.getItem('access_token'); }
+    function logout() {
+      localStorage.clear();
+      window.location.href = '/employee/login';
+    }
+
+    function checkAuth() {
+      const token = getToken();
+      const role  = localStorage.getItem('role');
+      if (!token || !['EMPLOYEE','ADMIN'].includes(role)) {
+        window.location.href = '/employee/login';
+        return false;
+      }
+      authHeaders = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+      document.getElementById('nav-user').textContent = localStorage.getItem('username') || '';
+      return true;
+    }
+
+    async function apiFetch(url, opts = {}) {
+      const res = await fetch(url, { ...opts, headers: { ...authHeaders, ...(opts.headers||{}) } });
+      if (res.status === 401) { logout(); throw new Error('Unauthorized'); }
+      return res;
+    }
+
+    // ── Toast ──
+    function toast(msg, type = 'info') {
+      const el = document.createElement('div');
+      el.className = `toast-msg ${type}`;
+      el.textContent = msg;
+      document.getElementById('toast').appendChild(el);
+      setTimeout(() => el.remove(), 4000);
+    }
+
+    // ── Tabs ──
+    function switchTab(name) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        if (b.getAttribute('onclick') === `switchTab('${name}')`) b.classList.add('active');
+      });
+
+      if (name === 'camera') startCamera();
+      if (name === 'active') loadActiveStays();
+      if (name === 'demo')   loadDemoSlots();
+    }
+
+    // ── Mini map ──
+    const MMAP_W = 300, MMAP_H = 400, MEPS = 6;
+    const miniLot   = document.getElementById('mini-lot');
+    const miniLines = document.getElementById('mini-lines');
+
+    function mDedupe(vals, eps=MEPS) {
+      if (!vals.length) return [];
+      vals.sort((a,b)=>a-b);
+      const out=[vals[0]];
+      for(let i=1;i<vals.length;i++) if(Math.abs(vals[i]-out[out.length-1])>eps) out.push(vals[i]);
+      return out;
+    }
+
+    let mOffX=0, mOffY=0;
+    function mComputeOffsets(spots) {
+      const minX=Math.min(...spots.map(s=>s.x)), maxX=Math.max(...spots.map(s=>s.x+s.w));
+      const minY=Math.min(...spots.map(s=>s.y)), maxY=Math.max(...spots.map(s=>s.y+s.h));
+      const scale = Math.min(MMAP_W/(maxX-minX), MMAP_H/(maxY-minY), 1);
+      mOffX = Math.round((MMAP_W-(maxX-minX)*scale)/2 - minX*scale);
+      mOffY = Math.round((MMAP_H-(maxY-minY)*scale)/2 - minY*scale);
+      return {minX,maxX,minY,maxY,scale};
+    }
+
+    function renderMiniMap(spots) {
+      if(!spots?.length) return;
+      const {minX,maxX,minY,maxY,scale}=mComputeOffsets(spots);
+      miniLines.innerHTML='';
+      miniLot.querySelectorAll('.m-spot').forEach(n=>n.remove());
+
+      // Lines
+      const bY=[];
+      spots.forEach(s=>{bY.push(s.y);bY.push(s.y+s.h);});
+      mDedupe(bY).filter(y=>y>minY+MEPS&&y<maxY-MEPS).forEach(y=>{
+        const l=document.createElement('div');
+        l.className='m-lot-line h';
+        l.style.left=Math.round(minX*scale+mOffX)+'px';
+        l.style.top=Math.round(y*scale+mOffY)+'px';
+        l.style.width=Math.round((maxX-minX)*scale)+'px';
+        miniLines.appendChild(l);
+      });
+
+      // Spots
+      spots.forEach(s=>{
+        const d=document.createElement('div');
+        d.className='m-spot '+(s.empty?'empty':'occupied');
+        d.style.left=Math.round(s.x*scale+mOffX)+'px';
+        d.style.top=Math.round(s.y*scale+mOffY)+'px';
+        d.style.width=Math.round(s.w*scale)+'px';
+        d.style.height=Math.round(s.h*scale)+'px';
+        miniLot.appendChild(d);
+      });
+    }
+
+    async function pollMap() {
+      try {
+        const res = await apiFetch('/api/public/parking/state');
+        const data = await res.json();
+        renderMiniMap(data.spots || []);
+        document.getElementById('stat-free').textContent  = data.free ?? '—';
+        document.getElementById('stat-occ').textContent   = (data.total - data.free) ?? '—';
+        document.getElementById('stat-total').textContent = data.total ?? '—';
+        document.getElementById('stat-pct').textContent   = data.total > 0
+          ? Math.round(data.occupancy_rate * 100) + '%' : '—';
+      } catch {}
+    }
+
+    // ── Camera ──
+    let cameraStarted = false;
+    function startCamera() {
+      if (cameraStarted) return;
+      cameraStarted = true;
+      const img = document.getElementById('camera-img');
+      const token = getToken();
+      img.src = `/api/camera/feed?token=${encodeURIComponent(token)}`;
+      img.onerror = () => {
+        img.alt = 'Error cargando cámara — verifique que el detector esté corriendo';
+        cameraStarted = false;  // allow retry
+      };
+    }
+
+    // ── Search Stay ──
+    async function searchStay() {
+      const query = document.getElementById('search-query').value.trim();
+      if (!query) { toast('Ingrese un código', 'error'); return; }
+      const resultEl = document.getElementById('search-result');
+      resultEl.innerHTML = '<p class="text-gray-400">Buscando…</p>';
+      resultEl.classList.remove('hidden');
+      try {
+        const res = await apiFetch('/api/employee/stays/lookup', {
+          method: 'POST',
+          body: JSON.stringify({ query }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          resultEl.innerHTML = `<p class="text-red-400">${data.detail || 'Error'}</p>`;
+          return;
+        }
+        const {stay, ticket, amount_expected} = data;
+        const entryDate = new Date(stay.entry_at).toLocaleString('es-AR');
+        resultEl.innerHTML = `
+          <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <div class="flex justify-between items-start mb-3">
+              <div>
+                <div class="font-bold text-lg">${ticket.ticket_code}</div>
+                <div class="text-sm text-gray-400">Ingreso: ${entryDate}</div>
+                <div class="text-sm text-gray-400">Estado: <span class="font-semibold">${stay.status}</span></div>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold text-green-400">$${amount_expected.toFixed(2)}</div>
+                <div class="text-xs text-gray-400">a cobrar</div>
+              </div>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <button onclick="closeCash('${stay.id}', ${amount_expected})"
+                class="flex-1 py-2 bg-green-700 hover:bg-green-600 rounded-lg text-sm font-semibold">
+                <i class="fa fa-money-bill mr-1"></i> Cobrar Efectivo
+              </button>
+              <button onclick="simulatePayment('${stay.id}')"
+                class="flex-1 py-2 bg-blue-700 hover:bg-blue-600 rounded-lg text-sm font-semibold">
+                <i class="fa fa-credit-card mr-1"></i> Pago Simulado
+              </button>
+            </div>
+          </div>`;
+      } catch(e) {
+        resultEl.innerHTML = `<p class="text-red-400">Error de conexión</p>`;
+      }
+    }
+
+    async function closeCash(stayId, amount) {
+      try {
+        const res = await apiFetch(`/api/employee/stays/${stayId}/close-cash`, {
+          method: 'POST',
+          body: JSON.stringify({ amount }),
+        });
+        if (res.ok) {
+          toast('Pago en efectivo registrado ✓', 'success');
+          document.getElementById('search-result').classList.add('hidden');
+          document.getElementById('search-query').value = '';
+        } else {
+          const d = await res.json();
+          toast(d.detail || 'Error', 'error');
+        }
+      } catch { toast('Error de conexión', 'error'); }
+    }
+
+    async function simulatePayment(stayId) {
+      try {
+        const res = await apiFetch(`/api/payments/simulate/${stayId}`, { method: 'POST' });
+        if (res.ok) {
+          toast('Pago simulado aprobado ✓', 'success');
+          document.getElementById('search-result').classList.add('hidden');
+          document.getElementById('search-query').value = '';
+        } else {
+          const d = await res.json();
+          toast(d.detail || 'Error', 'error');
+        }
+      } catch { toast('Error de conexión', 'error'); }
+    }
+
+    // ── Active Stays ──
+    async function loadActiveStays() {
+      const tbody = document.getElementById('active-tbody');
+      tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-gray-400 text-center">Cargando…</td></tr>';
+      try {
+        const res = await apiFetch('/api/employee/stays/active');
+        const stays = await res.json();
+        if (!stays.length) {
+          tbody.innerHTML = '<tr><td colspan="5" class="py-6 text-gray-500 text-center">Sin estadías activas</td></tr>';
+          return;
+        }
+        tbody.innerHTML = stays.map(s => {
+          const code = s.ticket?.ticket_code || s.id.substring(0,8);
+          const entry = new Date(s.entry_at).toLocaleString('es-AR');
+          const mins = Math.round((Date.now() - new Date(s.entry_at))/60000);
+          const amount = s.amount_expected ?? 0;
+          const est = `$${amount.toLocaleString('es-AR', {minimumFractionDigits:0, maximumFractionDigits:0})}`;
+          return `<tr id="row-${s.id}" class="border-b border-gray-800 hover:bg-gray-800/50">
+            <td class="py-2 pr-4 font-mono text-xs">${code}</td>
+            <td class="py-2 pr-4 text-xs">${entry}</td>
+            <td class="py-2 pr-4"><span class="px-2 py-0.5 rounded text-xs ${s.status==='ACTIVE'?'bg-green-900 text-green-300':'bg-yellow-900 text-yellow-300'}">${s.status}</span></td>
+            <td class="py-2 pr-4 text-xs">${est} (${mins}min)</td>
+            <td class="py-2 flex gap-1">
+              <button onclick="payCash('${s.id}', ${amount})" class="text-xs px-2 py-1 bg-green-800 hover:bg-green-700 rounded">Efectivo</button>
+              <button onclick="paySimulated('${s.id}')" class="text-xs px-2 py-1 bg-blue-800 hover:bg-blue-700 rounded">Simulado</button>
+            </td>
+          </tr>`;
+        }).join('');
+      } catch { tbody.innerHTML = '<tr><td colspan="5" class="text-red-400 text-center py-4">Error</td></tr>'; }
+    }
+
+    let _pendingCash = { stayId: null, amount: 0 };
+
+    function payCash(stayId, amount) {
+      _pendingCash = { stayId, amount };
+      document.getElementById('modal-amount').textContent =
+        '$' + amount.toLocaleString('es-AR', {minimumFractionDigits:0, maximumFractionDigits:0});
+      document.getElementById('cash-modal').classList.remove('hidden');
+    }
+
+    function closeCashModal() {
+      document.getElementById('cash-modal').classList.add('hidden');
+    }
+
+    async function confirmCash() {
+      const { stayId, amount } = _pendingCash;
+      closeCashModal();
+      try {
+        const res = await apiFetch(`/api/employee/stays/${stayId}/close-cash`, {
+          method: 'POST',
+          body: JSON.stringify({ amount }),
+        });
+        if (res.ok) {
+          toast('Pago en efectivo registrado ✓', 'success');
+          const row = document.getElementById('row-' + stayId);
+          if (row) row.remove();
+        } else {
+          const d = await res.json();
+          toast(d.detail || 'Error', 'error');
+        }
+      } catch { toast('Error de conexión', 'error'); }
+    }
+
+    async function paySimulated(stayId) {
+      try {
+        const res = await apiFetch(`/api/payments/simulate/${stayId}`, { method: 'POST' });
+        if (res.ok) {
+          toast('Pago simulado aprobado ✓', 'success');
+          const row = document.getElementById('row-' + stayId);
+          if (row) row.remove();
+        } else {
+          const d = await res.json();
+          toast(d.detail || 'Error', 'error');
+        }
+      } catch { toast('Error de conexión', 'error'); }
+    }
+
+    // ── New Stay ──
+    function openTicketPopup(ticketCode, entryAt, barcodeSvg) {
+      const entryFormatted = new Date(entryAt).toLocaleString('es-AR', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit'
+      });
+      const win = window.open('', '_blank', 'width=440,height=620');
+      win.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <title>Ticket ${ticketCode}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #fff; color: #111; padding: 30px; }
+    .ticket { max-width: 360px; margin: 0 auto; border: 2px dashed #555; border-radius: 12px; padding: 28px 24px; }
+    .logo { text-align: center; font-size: 2rem; margin-bottom: 4px; }
+    .title { text-align: center; font-size: 1.1rem; font-weight: bold; letter-spacing: 1px; }
+    .subtitle { text-align: center; color: #666; font-size: 0.8rem; margin-bottom: 20px; }
+    .divider { border: none; border-top: 1px dashed #aaa; margin: 16px 0; }
+    .label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+    .code { font-size: 1.6rem; font-weight: 900; font-family: monospace; letter-spacing: 3px; margin: 4px 0 16px; }
+    .entry-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+    .entry-val { font-size: 1.05rem; font-weight: bold; margin: 4px 0 16px; }
+    .barcode { text-align: center; margin: 8px 0 20px; }
+    .barcode svg { max-width: 100%; height: auto; }
+    .print-btn { display: block; width: 100%; padding: 12px; background: #1d4ed8; color: #fff; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; font-weight: bold; }
+    .print-btn:hover { background: #1e40af; }
+    @media print {
+      .print-btn { display: none; }
+      body { padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ticket">
+    <div class="logo">🅿</div>
+    <div class="title">ESTACIONAMIENTO</div>
+    <div class="subtitle">Comprobante de Ingreso</div>
+    <hr class="divider"/>
+    <div class="label">Código de Ticket</div>
+    <div class="code">${ticketCode}</div>
+    <div class="entry-label">Hora de Ingreso</div>
+    <div class="entry-val">${entryFormatted}</div>
+    <div class="barcode">${barcodeSvg}</div>
+    <hr class="divider"/>
+    <button class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+  </div>
+  <script>window.onload = () => { window.focus(); window.print(); }<\/script>
+</body>
+</html>`);
+      win.document.close();
+    }
+
+    document.getElementById('new-stay-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const notes = document.getElementById('new-notes').value;
+      try {
+        const res = await apiFetch('/api/employee/stays/create', {
+          method: 'POST',
+          body: JSON.stringify({ notes }),
+        });
+        const data = await res.json();
+        if (!res.ok) { toast(data.detail || 'Error', 'error'); return; }
+        toast(`Estadía creada: ${data.ticket.ticket_code}`, 'success');
+        openTicketPopup(data.ticket.ticket_code, data.stay.entry_at, data.barcode_svg);
+        document.getElementById('new-notes').value = '';
+      } catch { toast('Error de conexión', 'error'); }
+    });
+
+    // ── Demo ──
+    async function loadDemoSlots() {
+      const grid = document.getElementById('demo-slots-grid');
+      grid.innerHTML = '<p class="text-gray-400 col-span-full">Cargando…</p>';
+      try {
+        const res = await apiFetch('/api/employee/demo/slots');
+        const slots = await res.json();
+        grid.innerHTML = slots.map(slot => `
+          <div class="bg-gray-800 rounded-xl p-3 flex flex-col items-center gap-2">
+            <div class="text-sm font-mono">Slot ${slot.vision_id}</div>
+            <div class="flex gap-2">
+              <button onclick="toggleSlot(${slot.id}, false)"
+                class="demo-slot-btn ${!slot.demo_override?'bg-green-700 text-green-200':'bg-gray-700 text-gray-300'}">
+                Libre
+              </button>
+              <button onclick="toggleSlot(${slot.id}, true)"
+                class="demo-slot-btn ${slot.demo_override?'bg-red-700 text-red-200':'bg-gray-700 text-gray-300'}">
+                Ocupado
+              </button>
+            </div>
+          </div>`).join('');
+      } catch { grid.innerHTML = '<p class="text-red-400">Error</p>'; }
+    }
+
+    async function toggleSlot(slotId, occupied) {
+      try {
+        await apiFetch(`/api/employee/demo/slot/${slotId}`, {
+          method: 'POST',
+          body: JSON.stringify({ occupied }),
+        });
+        loadDemoSlots();
+        toast(`Slot ${slotId}: ${occupied?'OCUPADO':'LIBRE'}`, 'info');
+      } catch { toast('Error', 'error'); }
+    }
+
+    async function resetDemo() {
+      try {
+        await apiFetch('/api/employee/demo/reset', { method: 'POST' });
+        toast('Demo reseteado', 'info');
+        loadDemoSlots();
+      } catch { toast('Error', 'error'); }
+    }
+
+    // ── Init ──
+    if (checkAuth()) {
+      pollMap();
+      setInterval(pollMap, 2000);
+    }
+  </script>
+</body>
+</html>

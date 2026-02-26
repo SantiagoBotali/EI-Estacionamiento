@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard — Estacionamiento</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .tab-btn.active { border-bottom: 3px solid #a855f7; color: #a855f7; }
+    .kpi-card { background: #1f2937; border-radius: 12px; padding: 20px; }
+    .kpi-value { font-size: 2rem; font-weight: 800; }
+    .kpi-label { font-size: 0.8rem; color: #9ca3af; margin-top: 4px; }
+    /* Toast */
+    #admin-toast { position: fixed; bottom: 24px; right: 24px; z-index: 9999; }
+    .toast-msg { padding: 12px 20px; border-radius: 10px; margin-top: 8px; font-size: 0.9rem; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.4); animation: slideIn 0.3s ease; }
+    .toast-msg.success { background: #065f46; }
+    .toast-msg.error   { background: #7f1d1d; }
+    .toast-msg.info    { background: #1e3a5f; }
+    @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: none; opacity: 1; } }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen" style="background:#111827;">
+
+  <!-- Navbar -->
+  <nav class="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-2xl">🔐</span>
+      <span class="font-bold text-lg">Dashboard Admin</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="text-sm text-gray-400" id="nav-user"></span>
+      <span class="text-xs text-gray-500" id="last-refresh"></span>
+      <button onclick="logout()" class="text-sm text-red-400 hover:text-red-300">
+        <i class="fa fa-sign-out-alt"></i> Salir
+      </button>
+    </div>
+  </nav>
+
+  <!-- Tabs -->
+  <div class="bg-gray-800 border-b border-gray-700 flex">
+    <button class="tab-btn active px-6 py-3 text-sm font-medium" onclick="switchTab('ops')">
+      <i class="fa fa-chart-bar mr-1"></i> Operaciones
+    </button>
+    <button class="tab-btn px-6 py-3 text-sm font-medium" onclick="switchTab('fin')">
+      <i class="fa fa-dollar-sign mr-1"></i> Finanzas
+    </button>
+    <button class="tab-btn px-6 py-3 text-sm font-medium" onclick="switchTab('cam')">
+      <i class="fa fa-video mr-1"></i> Cámara
+    </button>
+    <button class="tab-btn px-6 py-3 text-sm font-medium" onclick="switchTab('live')">
+      <i class="fa fa-circle text-green-400 mr-1" style="font-size:0.5rem;vertical-align:middle;"></i> En Vivo
+    </button>
+  </div>
+
+  <!-- Tab: Operaciones -->
+  <div id="tab-ops" class="tab-content active p-4 md:p-6">
+    <h2 class="text-xl font-bold mb-4">Operaciones — Hoy</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="kpi-card">
+        <div class="kpi-value text-blue-400" id="kpi-autos-hoy">—</div>
+        <div class="kpi-label">Autos Hoy</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value text-yellow-400" id="kpi-duracion">—</div>
+        <div class="kpi-label">Duración Promedio (min)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value text-orange-400" id="kpi-hora-pico">—</div>
+        <div class="kpi-label">Hora Pico</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value text-red-400" id="kpi-tasa">—</div>
+        <div class="kpi-label">Tasa Ocupación Actual</div>
+      </div>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="bg-gray-800 rounded-xl p-4">
+        <h3 class="font-semibold mb-3 text-sm text-gray-300">Autos por Hora (Hoy)</h3>
+        <div id="chart-autos-hora" style="height:250px;"></div>
+      </div>
+      <div class="bg-gray-800 rounded-xl p-4">
+        <h3 class="font-semibold mb-3 text-sm text-gray-300">Autos por Día (Últimos 7 Días)</h3>
+        <div id="chart-autos-dia" style="height:250px;"></div>
+      </div>
+    </div>
+
+    <!-- Tariff Configuration -->
+    <div class="mt-6 bg-gray-800 rounded-xl p-5 border border-gray-700">
+      <h3 class="font-semibold mb-1 text-gray-200">Configuración de Tarifas</h3>
+      <p class="text-xs text-gray-500 mb-4">Período de gracia: 15 min · Mínimo post-gracia: $300 ARS</p>
+      <div class="flex items-center gap-3 max-w-sm">
+        <label class="text-sm text-gray-300 whitespace-nowrap">Tarifa / hora (ARS)</label>
+        <input type="number" id="rate-input" min="0" step="100"
+          class="flex-1 px-3 py-2 rounded-lg bg-gray-700 border border-gray-600 text-white text-sm focus:outline-none focus:border-purple-500" />
+        <button onclick="saveTariff()"
+          class="px-4 py-2 bg-purple-700 hover:bg-purple-600 rounded-lg text-sm font-semibold whitespace-nowrap">
+          Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Finanzas -->
+  <div id="tab-fin" class="tab-content p-4 md:p-6">
+    <h2 class="text-xl font-bold mb-4">Finanzas</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="kpi-card">
+        <div class="kpi-value text-green-400" id="kpi-ingresos-hoy">—</div>
+        <div class="kpi-label">Ingresos Hoy (ARS)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value text-emerald-400" id="kpi-ingresos-mes">—</div>
+        <div class="kpi-label">Ingresos del Mes (ARS)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value text-cyan-400" id="kpi-ticket-prom">—</div>
+        <div class="kpi-label">Ticket Promedio (ARS)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value text-orange-400" id="kpi-pendiente">—</div>
+        <div class="kpi-label">Pendiente (ARS)</div>
+      </div>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="bg-gray-800 rounded-xl p-4">
+        <h3 class="font-semibold mb-3 text-sm text-gray-300">Ingresos por Día (Últimos 7 Días)</h3>
+        <div id="chart-ing-dia" style="height:250px;"></div>
+      </div>
+      <div class="bg-gray-800 rounded-xl p-4">
+        <h3 class="font-semibold mb-3 text-sm text-gray-300">Distribución por Método de Pago</h3>
+        <div id="chart-metodos" style="height:250px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Cámara -->
+  <div id="tab-cam" class="tab-content p-4">
+    <h2 class="text-xl font-bold mb-4">Cámara — Video en Tiempo Real</h2>
+    <div class="flex flex-col lg:flex-row gap-6 items-start">
+      <div class="flex-1">
+        <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
+          <img id="admin-camera-img"
+               class="w-full object-contain"
+               style="max-height: 520px; background:#000;"
+               alt="Cargando cámara…" />
+        </div>
+        <p class="text-xs text-gray-500 mt-2 text-center">
+          Video: <code>parking_crop_loop.mp4</code> · Anotado por el detector de visión
+        </p>
+      </div>
+      <div class="w-full lg:w-64 space-y-4">
+        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700 text-center">
+          <div class="text-3xl font-bold text-green-400" id="cam-free">—</div>
+          <div class="text-sm text-gray-400 mt-1">Lugares Libres</div>
+        </div>
+        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700 text-center">
+          <div class="text-3xl font-bold text-red-400" id="cam-occ">—</div>
+          <div class="text-sm text-gray-400 mt-1">Ocupados</div>
+        </div>
+        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700 text-center">
+          <div class="text-3xl font-bold text-yellow-400" id="cam-pct">—</div>
+          <div class="text-sm text-gray-400 mt-1">Tasa de Ocupación</div>
+        </div>
+        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+          <div class="text-xs text-gray-400 font-semibold mb-2">Leyenda</div>
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-4 h-3 rounded" style="background:#22c55e;"></div>
+            <span class="text-xs text-gray-300">Lugar libre</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-3 rounded" style="background:#3b82f6;"></div>
+            <span class="text-xs text-gray-300">Lugar ocupado</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: En Vivo -->
+  <div id="tab-live" class="tab-content p-4">
+    <h2 class="text-xl font-bold mb-4">Vista en Vivo</h2>
+    <iframe src="/" class="w-full rounded-xl border border-gray-700" style="height:600px;" title="Mapa en vivo"></iframe>
+  </div>
+
+  <!-- Toast container -->
+  <div id="admin-toast"></div>
+
+  <script>
+    const API = '';
+    let authHeaders = {};
+    const PLOTLY_DARK = { paper_bgcolor: '#1f2937', plot_bgcolor: '#111827', font: { color: '#e5e7eb' }, margin: { t:10, b:30, l:40, r:10 } };
+
+    function getToken() { return localStorage.getItem('access_token'); }
+    function logout() { localStorage.clear(); window.location.href = '/admin/login'; }
+
+    function checkAuth() {
+      const token = getToken();
+      const role  = localStorage.getItem('role');
+      if (!token || role !== 'ADMIN') { window.location.href = '/admin/login'; return false; }
+      authHeaders = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+      document.getElementById('nav-user').textContent = localStorage.getItem('username') || '';
+      return true;
+    }
+
+    async function apiFetch(url, opts = {}) {
+      const res = await fetch(url, { ...opts, headers: { ...authHeaders, ...(opts.headers||{}) } });
+      if (res.status === 401) { logout(); throw new Error('Unauthorized'); }
+      return res;
+    }
+
+    function showToast(msg, type = 'info') {
+      const el = document.createElement('div');
+      el.className = `toast-msg ${type}`;
+      el.textContent = msg;
+      document.getElementById('admin-toast').appendChild(el);
+      setTimeout(() => el.remove(), 4000);
+    }
+
+    let cameraStarted = false;
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        if (b.getAttribute('onclick') === `switchTab('${name}')`) b.classList.add('active');
+      });
+      if (name === 'cam') startAdminCamera();
+    }
+
+    function startAdminCamera() {
+      if (cameraStarted) return;
+      cameraStarted = true;
+      const token = getToken();
+      const img = document.getElementById('admin-camera-img');
+      img.src = `/api/camera/feed?token=${encodeURIComponent(token)}`;
+      img.onerror = () => { cameraStarted = false; };
+    }
+
+    async function pollCameraStats() {
+      try {
+        const res = await apiFetch('/api/public/parking/state');
+        const d = await res.json();
+        const free  = d.free  ?? 0;
+        const total = d.total ?? 0;
+        const occ   = total - free;
+        const pct   = total > 0 ? Math.round(d.occupancy_rate * 100) : 0;
+        document.getElementById('cam-free').textContent = free;
+        document.getElementById('cam-occ').textContent  = occ;
+        document.getElementById('cam-pct').textContent  = pct + '%';
+      } catch {}
+    }
+
+    function fmtNum(v, digits=0) {
+      if (v == null) return '—';
+      return new Intl.NumberFormat('es-AR', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(v);
+    }
+
+    async function loadOperations() {
+      try {
+        const res = await apiFetch('/api/admin/kpis/operations');
+        const d = await res.json();
+
+        document.getElementById('kpi-autos-hoy').textContent   = fmtNum(d.autos_hoy);
+        document.getElementById('kpi-duracion').textContent    = fmtNum(d.duracion_promedio_min, 1);
+        document.getElementById('kpi-hora-pico').textContent   = d.hora_pico || '—';
+        document.getElementById('kpi-tasa').textContent        = fmtNum(d.tasa_ocupacion_pct, 1) + '%';
+
+        // Bar: autos por hora
+        Plotly.react('chart-autos-hora', [{
+          x: d.autos_por_hora.map(r => r.hour),
+          y: d.autos_por_hora.map(r => r.count),
+          type: 'bar', marker: { color: '#3b82f6' }
+        }], { ...PLOTLY_DARK, xaxis: { color: '#9ca3af' }, yaxis: { color: '#9ca3af', dtick: 1 } },
+        { displayModeBar: false, responsive: true });
+
+        // Line: autos por día
+        Plotly.react('chart-autos-dia', [{
+          x: d.autos_por_dia.map(r => r.date),
+          y: d.autos_por_dia.map(r => r.count),
+          type: 'scatter', mode: 'lines+markers',
+          line: { color: '#60a5fa', width: 2 }, marker: { color: '#93c5fd' }
+        }], { ...PLOTLY_DARK, xaxis: { color: '#9ca3af' }, yaxis: { color: '#9ca3af', dtick: 1 } },
+        { displayModeBar: false, responsive: true });
+      } catch(e) { console.error('ops error', e); }
+    }
+
+    async function loadFinance() {
+      try {
+        const res = await apiFetch('/api/admin/kpis/finance');
+        const d = await res.json();
+
+        document.getElementById('kpi-ingresos-hoy').textContent  = '$' + fmtNum(d.ingresos_hoy);
+        document.getElementById('kpi-ingresos-mes').textContent  = '$' + fmtNum(d.ingresos_mes);
+        document.getElementById('kpi-ticket-prom').textContent   = '$' + fmtNum(d.ticket_promedio, 2);
+        document.getElementById('kpi-pendiente').textContent     = '$' + fmtNum(d.pendiente);
+
+        // Bar: ingresos por día
+        Plotly.react('chart-ing-dia', [{
+          x: d.ingresos_por_dia.map(r => r.date),
+          y: d.ingresos_por_dia.map(r => r.amount),
+          type: 'bar', marker: { color: '#10b981' }
+        }], { ...PLOTLY_DARK, xaxis: { color: '#9ca3af' }, yaxis: { color: '#9ca3af', tickprefix: '$' } },
+        { displayModeBar: false, responsive: true });
+
+        // Pie: por método
+        const methods = { CASH: 'Efectivo', SIMULATED: 'Simulado', MERCADOPAGO: 'MercadoPago' };
+        Plotly.react('chart-metodos', [{
+          labels: d.por_metodo.map(r => methods[r.method] || r.method),
+          values: d.por_metodo.map(r => r.amount),
+          type: 'pie',
+          marker: { colors: ['#10b981', '#3b82f6', '#a855f7'] },
+          textinfo: 'label+percent', insidetextorientation: 'radial',
+          hole: 0.3,
+        }], { ...PLOTLY_DARK, margin: { t:10, b:10, l:10, r:10 } },
+        { displayModeBar: false, responsive: true });
+      } catch(e) { console.error('finance error', e); }
+    }
+
+    async function refreshAll() {
+      await Promise.all([loadOperations(), loadFinance()]);
+      document.getElementById('last-refresh').textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-AR');
+    }
+
+    async function loadTariff() {
+      try {
+        const res = await apiFetch('/api/admin/settings/tariff');
+        const d = await res.json();
+        document.getElementById('rate-input').value = d.rate_per_hour;
+      } catch {}
+    }
+
+    async function saveTariff() {
+      const val = parseFloat(document.getElementById('rate-input').value);
+      if (isNaN(val) || val <= 0) { showToast('Ingrese una tarifa válida', 'error'); return; }
+      try {
+        const res = await apiFetch('/api/admin/settings/tariff', {
+          method: 'PUT',
+          body: JSON.stringify({ rate_per_hour: val }),
+        });
+        if (res.ok) {
+          showToast(`Tarifa actualizada: $${val.toLocaleString('es-AR')}/hr`, 'success');
+        } else {
+          showToast('Error al guardar', 'error');
+        }
+      } catch { showToast('Error de conexión', 'error'); }
+    }
+
+    if (checkAuth()) {
+      refreshAll();
+      loadTariff();
+      setInterval(refreshAll, 30000);
+      // Poll camera stats every 2s (works even when cam tab not active)
+      pollCameraStats();
+      setInterval(pollCameraStats, 2000);
+    }
+  </script>
+</body>
+</html>

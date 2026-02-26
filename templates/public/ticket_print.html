@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Ticket de Estacionamiento</title>
+  <style>
+    @media print { body { margin: 0; } .no-print { display: none; } }
+    body { font-family: 'Courier New', monospace; background: #fff; color: #000; max-width: 340px; margin: 20px auto; padding: 20px; border: 2px dashed #ccc; }
+    h2 { text-align: center; font-size: 1.2rem; margin-bottom: 8px; }
+    .divider { border-top: 1px dashed #ccc; margin: 10px 0; }
+    .row { display: flex; justify-content: space-between; font-size: 0.85rem; margin: 4px 0; }
+    .big-code { text-align: center; font-size: 1.4rem; font-weight: bold; letter-spacing: 0.1em; margin: 10px 0; }
+    .barcode-wrapper { text-align: center; margin: 10px 0; overflow: hidden; }
+    .barcode-wrapper svg { max-width: 100%; height: 60px; }
+    .footer { text-align: center; font-size: 0.7rem; color: #666; margin-top: 12px; }
+    .btn { display: block; width: 100%; padding: 10px; margin-top: 16px; background: #1d4ed8; color: #fff; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; }
+    .btn:hover { background: #1e40af; }
+  </style>
+</head>
+<body>
+  <h2>🅿 ESTACIONAMIENTO</h2>
+  <div class="divider"></div>
+  <div class="row"><span>Código:</span><span><strong>{{ ticket.ticket_code }}</strong></span></div>
+  <div class="row"><span>Ingreso:</span><span>{{ entry_at }}</span></div>
+  <div class="row"><span>Emitido:</span><span>{{ issued_at }}</span></div>
+  <div class="divider"></div>
+  <div class="big-code">{{ ticket.ticket_code }}</div>
+  <div class="barcode-wrapper">{{ barcode_svg | safe }}</div>
+  <div class="divider"></div>
+  <div class="footer">
+    Conserve este ticket.<br>
+    Tarifa: $800/hr · Gracia: 15 min · Mínimo: $300
+  </div>
+  <button class="btn no-print" onclick="window.print()">🖨 Imprimir Ticket</button>
+</body>
+</html>

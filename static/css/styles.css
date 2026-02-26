@@ -1,0 +1,22 @@
+/* Base styles for the parking system */
+:root {
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --bg-card: #374151;
+  --text-primary: #f9fafb;
+  --text-secondary: #9ca3af;
+  --accent-blue: #3b82f6;
+  --accent-green: #10b981;
+  --accent-red: #ef4444;
+  --accent-yellow: #f59e0b;
+}
+
+/* Utility: hide scrollbar but allow scroll */
+.scroll-no-bar::-webkit-scrollbar { display: none; }
+.scroll-no-bar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Print styles for ticket */
+@media print {
+  body { background: #fff !important; }
+  .no-print, nav, header { display: none !important; }
+}
