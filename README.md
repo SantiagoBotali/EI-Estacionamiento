@@ -205,6 +205,65 @@ DEBUG=false
 
 ---
 
+## Frontend React
+
+El proyecto incluye una interfaz React (Vite + TypeScript + Tailwind) que reemplaza los paneles Jinja2 del empleado y del administrador. FastAPI la sirve en `/react/*` cuando existe el build compilado.
+
+### Requisitos adicionales
+
+- **Node.js 18 o superior** (incluye `npm`)
+
+### Opción A — Desarrollo (hot reload)
+
+En una terminal aparte, mientras el backend corre:
+
+```bash
+cd frontend
+npm install        # solo la primera vez
+npm run dev
+```
+
+El dev server queda en `http://localhost:5173/react/`. Vite redirige las llamadas a la API al backend en `localhost:8000` automáticamente (configurado en `vite.config.ts`).
+
+> El backend debe estar corriendo en paralelo (`python run.py`) para que la API responda.
+
+### Opción B — Build para producción (recomendada)
+
+```bash
+cd frontend
+npm install        # solo la primera vez
+npm run build
+```
+
+Esto genera la carpeta `frontend/dist/`. FastAPI la detecta al iniciar y sirve la app en `http://localhost:8000/react/`. No se necesita servidor Node en producción.
+
+### Acceso al frontend React
+
+| Interfaz | URL (dev) | URL (producción) |
+|----------|-----------|-----------------|
+| Panel de empleados | `http://localhost:5173/react/employee` | `http://localhost:8000/react/employee` |
+| Dashboard de administración | `http://localhost:5173/react/admin` | `http://localhost:8000/react/admin` |
+
+Las credenciales son las mismas que en la versión Jinja2 (`empleado / emp123`, `admin / admin123`).
+
+### Estructura del frontend
+
+```
+frontend/
+├── src/
+│   ├── components/     # Componentes reutilizables (tablas, gráficos, mapa)
+│   ├── pages/          # Páginas por rol (Employee, Admin)
+│   ├── hooks/          # Custom hooks (autenticación, SSE, fetch)
+│   ├── types/          # Tipos TypeScript compartidos
+│   └── main.tsx        # Entry point
+├── index.html
+├── vite.config.ts      # Proxy a localhost:8000 + base path /react/
+├── tailwind.config.js
+└── package.json
+```
+
+---
+
 ## Solución de problemas comunes
 
 **Error al iniciar: `bcrypt` incompatible**
