@@ -88,6 +88,7 @@ class StayOut(BaseModel):
     amount_paid: Optional[float] = None
     payment_method: Optional[str] = None
     notes: Optional[str] = None
+    slot_vision_id: Optional[int] = None
     ticket: Optional[TicketOut] = None
 
 
@@ -167,3 +168,17 @@ class FinanceKPI(BaseModel):
     pendiente: float
     ingresos_por_dia: list[dict]  # [{date, amount}]
     por_metodo: list[dict]        # [{method, amount}]
+
+
+class RollupKPI(BaseModel):
+    granularity: str
+    period_label: str
+    total_stays: int
+    avg_duration_min: float
+    peak_period: Optional[str]
+    total_revenue: float
+    avg_ticket: float
+    pending: float
+    stays_by_period: list[dict]    # [{period, count}]
+    revenue_by_period: list[dict]  # [{period, amount}]
+    by_method: list[dict]          # [{method, amount}]

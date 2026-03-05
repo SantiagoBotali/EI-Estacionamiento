@@ -74,7 +74,8 @@ async def _sse_generator(request: Request) -> AsyncGenerator[str, None]:
                 "spots": state["spots"],
                 "free": state["free"],
                 "total": state["total"],
-                "ts": state["last_updated"],
+                "occupancy_rate": state["occupancy_rate"],
+                "last_updated": state["last_updated"],
             }
             yield f"data: {json.dumps(payload)}\n\n"
         except Exception as e:

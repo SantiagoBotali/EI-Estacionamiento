@@ -2,7 +2,7 @@
 app/services/stay_manager.py — Stay lifecycle management.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, or_
@@ -127,6 +127,149 @@ def close_cash(
     db.commit()
     db.refresh(stay)
     return stay
+
+
+def create_stay_for_spot(
+    db: Session,
+    vision_id: int,
+    entry_at: "datetime | None" = None,
+) -> "Stay | None":
+    """
+    Create an ACTIVE stay for a specific parking spot.
+    Returns None (no-op) if a stay already exists for that spot.
+    """
+    existing = db.execute(
+        select(Stay).where(
+            Stay.slot_vision_id == vision_id,
+            Stay.status == StayStatus.ACTIVE,
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return None
+
+    if entry_at is None:
+        entry_at = datetime.now(timezone.utc)
+
+    stay = Stay(status=StayStatus.ACTIVE, slot_vision_id=vision_id, entry_at=entry_at)
+    db.add(stay)
+    db.flush()
+    create_ticket_in_db(db, stay.id)
+    db.commit()
+    db.refresh(stay)
+    return stay
+
+
+def close_stay_for_spot(db: Session, vision_id: int) -> "Stay | None":
+    """
+    Close the ACTIVE stay for a specific parking spot.
+    Returns None if no active stay found.
+    """
+    stay = db.execute(
+        select(Stay).where(
+            Stay.slot_vision_id == vision_id,
+            Stay.status == StayStatus.ACTIVE,
+        )
+    ).scalar_one_or_none()
+    if not stay:
+        return None
+
+    from app.database import get_setting
+    from app.models import Payment, PaymentMethod, PaymentStatus
+
+    rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    now = datetime.now(timezone.utc)
+
+    entry = stay.entry_at if stay.entry_at.tzinfo else stay.entry_at.replace(tzinfo=timezone.utc)
+    amount = calculate_price(entry, now, rate_per_hour=rate)
+
+    stay.exit_at = now
+    stay.status = StayStatus.CLOSED
+    stay.amount_expected = amount
+    stay.amount_paid = amount
+    stay.payment_method = PaymentMethod.CASH
+
+    db.add(Payment(
+        stay_id=stay.id,
+        method=PaymentMethod.CASH,
+        amount=amount,
+        status=PaymentStatus.APPROVED,
+        processed_at=now,
+    ))
+    db.commit()
+    db.refresh(stay)
+    return stay
+
+
+def generate_today_active_stays(
+    db: Session,
+    occupied_vision_ids: list[int],
+) -> list[Stay]:
+    """
+    Close every current ACTIVE/PAYMENT_PENDING stay, then create a fresh
+    ACTIVE stay for each occupied spot with a random entry_at earlier today.
+    """
+    import random
+
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    from app.database import get_setting
+    from app.models import Payment, PaymentMethod, PaymentStatus
+
+    rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+
+    # ── Close all current active stays ───────────────────────────────────────
+    active = (
+        db.execute(
+            select(Stay).where(Stay.status.in_([StayStatus.ACTIVE, StayStatus.PAYMENT_PENDING]))
+        )
+        .scalars()
+        .all()
+    )
+    for stay in active:
+        entry = stay.entry_at if stay.entry_at.tzinfo else stay.entry_at.replace(tzinfo=timezone.utc)
+        amount = calculate_price(entry, now, rate_per_hour=rate)
+        stay.exit_at = now
+        stay.status = StayStatus.CLOSED
+        stay.amount_expected = amount
+        stay.amount_paid = amount
+        stay.payment_method = PaymentMethod.CASH
+        db.add(Payment(
+            stay_id=stay.id,
+            method=PaymentMethod.CASH,
+            amount=amount,
+            status=PaymentStatus.APPROVED,
+            processed_at=now,
+        ))
+    db.commit()
+
+    # ── Create fresh active stays ─────────────────────────────────────────────
+    # entry_at: random between today_start and (now - 5 min), capped to 4h ago
+    earliest = max(today_start, now - timedelta(hours=4))
+    latest = now - timedelta(minutes=5)
+    if latest <= earliest:
+        latest = now - timedelta(minutes=1)
+    span_sec = max(1, int((latest - earliest).total_seconds()))
+
+    new_stays: list[Stay] = []
+    for vision_id in occupied_vision_ids:
+        offset = timedelta(seconds=random.randint(0, span_sec))
+        entry_at = earliest + offset
+
+        stay = Stay(
+            status=StayStatus.ACTIVE,
+            slot_vision_id=vision_id,
+            entry_at=entry_at,
+        )
+        db.add(stay)
+        db.flush()
+        create_ticket_in_db(db, stay.id)
+        new_stays.append(stay)
+
+    db.commit()
+    for stay in new_stays:
+        db.refresh(stay)
+    return new_stays
 
 
 def get_active_stays(db: Session) -> list[Stay]:

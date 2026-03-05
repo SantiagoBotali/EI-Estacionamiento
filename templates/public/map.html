@@ -74,10 +74,31 @@
         box-shadow: 2px 2px 16px #0008;
         overflow: hidden;
         max-width: 100%;
+        transition: background 0.25s;
+      }
+      #parking-lot.mode-custom {
+        background: #222 url('/Media/map_test.png') center/cover no-repeat;
+      }
+
+      /* ── Mode toggle ── */
+      #map-mode-btn {
+        position: absolute; top: 8px; right: 8px; z-index: 20;
+        display: flex; align-items: center; gap: 6px;
+        padding: 4px 10px; border-radius: 8px; border: none; cursor: pointer;
+        font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+        font-family: Arial, sans-serif;
+        background: rgba(255,255,255,0.12); color: #cbd5e1;
+        backdrop-filter: blur(6px);
+        box-shadow: 0 1px 6px rgba(0,0,0,0.4);
+        transition: background 0.2s, color 0.2s;
+      }
+      #map-mode-btn.mode-custom {
+        background: rgba(0,0,0,0.55); color: #d1fae5;
       }
 
       /* ── Lines layer ── */
-      #lot-lines { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+      #lot-lines { position: absolute; inset: 0; z-index: 3; pointer-events: none; transition: opacity 0.25s; }
+      .mode-custom #lot-lines { opacity: 0; }
       .lot-line { position: absolute; background: rgba(255,255,255,0.96); border-radius: 2px; }
       .lot-line.v { width: 3px; }
       .lot-line.h { height: 3px; }
@@ -137,6 +158,15 @@
 
     <div id="parking-wrapper">
       <div id="parking-lot">
+        <button id="map-mode-btn" title="Cambiar modo de mapa">
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/>
+            <line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/>
+          </svg>
+          <span id="map-mode-label">CLÁSICO</span>
+        </button>
         <div id="lot-lines"></div>
         <div id="no-data">Esperando datos del detector…</div>
       </div>
@@ -325,6 +355,27 @@
       }
 
       connect();
+
+      // ── Map mode toggle ──────────────────────────────────────────────────────
+      const SESSION_KEY = 'parkingMapMode';
+      const modeBtn     = document.getElementById('map-mode-btn');
+      const modeLabel   = document.getElementById('map-mode-label');
+
+      function applyMode(mode) {
+        const isCustom = mode === 'custom';
+        lot.classList.toggle('mode-custom', isCustom);
+        modeBtn.classList.toggle('mode-custom', isCustom);
+        modeLabel.textContent = isCustom ? 'IMAGEN' : 'CLÁSICO';
+      }
+
+      // Restore persisted mode
+      applyMode(sessionStorage.getItem(SESSION_KEY) ?? 'original');
+
+      modeBtn.addEventListener('click', () => {
+        const next = lot.classList.contains('mode-custom') ? 'original' : 'custom';
+        sessionStorage.setItem(SESSION_KEY, next);
+        applyMode(next);
+      });
     </script>
   </body>
 </html>

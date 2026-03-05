@@ -1,29 +1,12 @@
-# Entorno virtual
 .venv/
-
-# Claude Code
 .claude/
-
-# Variables de entorno
 .env
-.env.*
-
-# Base de datos local
-parking.db
-*.db
-
-# Bytecode Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Archivos de error de Windows
 nul
-
-# Logs
-*.log
-
-# OS
-.DS_Store
-Thumbs.db
+frontend/node_modules/
+frontend/dist/
+*.db
+__pycache__/
+app/__pycache__/
+app/api/__pycache__/
+app/services/__pycache__/
+vision/__pycache__/

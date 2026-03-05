@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-100 min-h-screen;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { @apply bg-slate-900; }
+  ::-webkit-scrollbar-thumb { @apply bg-slate-700 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-slate-600; }
+}
+
+@layer components {
+  /* Cards */
+  .glass {
+    @apply bg-slate-800/60 backdrop-blur-md border border-slate-700/50 rounded-2xl;
+  }
+  .card {
+    @apply bg-slate-800/80 border border-slate-700/60 rounded-xl;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center gap-2 font-medium rounded-lg px-4 py-2 text-sm
+           transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed
+           active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
+           focus-visible:ring-offset-slate-900;
+  }
+  .btn-primary {
+    @apply btn bg-blue-600 hover:bg-blue-500 text-white focus-visible:ring-blue-500;
+  }
+  .btn-secondary {
+    @apply btn bg-slate-700/80 hover:bg-slate-600/80 text-slate-100 border border-slate-600/50
+           focus-visible:ring-slate-500;
+  }
+  .btn-success {
+    @apply btn bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400
+           border border-emerald-500/40 focus-visible:ring-emerald-500;
+  }
+  .btn-danger {
+    @apply btn bg-red-600/20 hover:bg-red-600/30 text-red-400
+           border border-red-500/40 focus-visible:ring-red-500;
+  }
+  .btn-warning {
+    @apply btn bg-amber-600/20 hover:bg-amber-600/30 text-amber-400
+           border border-amber-500/40 focus-visible:ring-amber-500;
+  }
+  .btn-ghost {
+    @apply btn text-slate-400 hover:text-slate-100 hover:bg-slate-700/60;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full bg-slate-900/80 border border-slate-700 text-slate-100 rounded-lg
+           px-4 py-2.5 text-sm placeholder-slate-600
+           focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500
+           transition-all duration-150;
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+  }
+  .badge-green  { @apply badge bg-emerald-500/15 text-emerald-400 border border-emerald-500/25; }
+  .badge-red    { @apply badge bg-red-500/15    text-red-400    border border-red-500/25;    }
+  .badge-yellow { @apply badge bg-amber-500/15  text-amber-400  border border-amber-500/25;  }
+  .badge-blue   { @apply badge bg-blue-500/15   text-blue-400   border border-blue-500/25;   }
+  .badge-slate  { @apply badge bg-slate-500/15  text-slate-400  border border-slate-500/25;  }
+
+  /* KPI Cards */
+  .kpi-card {
+    @apply card p-5 flex flex-col gap-1;
+  }
+  .kpi-value {
+    @apply text-3xl font-bold tracking-tight;
+  }
+  .kpi-label {
+    @apply text-xs font-medium text-slate-500 uppercase tracking-widest;
+  }
+
+  /* Sidebar nav */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+           text-slate-400 hover:text-slate-100 hover:bg-slate-700/60
+           transition-all duration-150 cursor-pointer;
+  }
+  .nav-item-active {
+    @apply nav-item text-white bg-blue-600/25 hover:bg-blue-600/30 border border-blue-500/30;
+  }
+
+  /* Table */
+  .table-row {
+    @apply border-b border-slate-800/80 hover:bg-slate-800/30 transition-colors;
+  }
+  .th {
+    @apply text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 py-3;
+  }
+  .td {
+    @apply px-4 py-3 text-sm text-slate-300;
+  }
+}

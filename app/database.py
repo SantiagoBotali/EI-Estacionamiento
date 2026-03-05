@@ -34,9 +34,25 @@ def get_setting(db: Session, key: str, default: str = "") -> str:
 
 
 def init_db():
-    """Create all tables."""
+    """Create all tables and apply lightweight migrations."""
     from app import models  # noqa: F401 — ensure models are registered
     Base.metadata.create_all(bind=engine)
+    _migrate()
+
+
+def _migrate():
+    """Add new columns to existing tables without dropping data (SQLite safe)."""
+    from sqlalchemy import text
+    additions = [
+        ("stays", "slot_vision_id", "INTEGER"),
+    ]
+    with engine.connect() as conn:
+        for table, column, col_type in additions:
+            rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            existing = {r[1] for r in rows}
+            if column not in existing:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+                conn.commit()
 
 
 def seed_db():
@@ -150,10 +166,10 @@ def _seed_synthetic_stays(db: Session):
             processed_at=exit_at,
         ))
 
-    # 5 active stays for today
-    for hour in [9, 10, 11, 14, 15]:
-        minute = random.randint(0, 45)
-        entry_at = today_start.replace(hour=hour, minute=minute)
+    # 5 active stays — entry_at is between 20 min and 4 h ago, never before today_start
+    for _ in range(5):
+        minutes_ago = random.randint(20, 240)
+        entry_at = max(now - timedelta(minutes=minutes_ago), today_start)
 
         stay = Stay(
             id=str(uuid.uuid4()),

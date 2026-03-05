@@ -111,6 +111,7 @@ class Stay(Base):
     amount_paid: Mapped[float | None] = mapped_column(Float, nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    slot_vision_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_by_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
     )

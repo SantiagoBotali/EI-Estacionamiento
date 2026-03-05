@@ -19,6 +19,7 @@ from app.schemas import (
     StayLookupRequest,
     StayLookupResponse,
     StayOut,
+    TariffSettings,
     TicketOut,
 )
 from app.security import require_employee
@@ -86,6 +87,21 @@ async def camera_feed(
     )
 
 
+# ─── Tariff (read-only, for client-side amount preview) ──────────────────────
+
+@router.get("/tariff", response_model=TariffSettings)
+async def get_tariff(
+    _: User = Depends(require_employee),
+    db: Session = Depends(get_db),
+):
+    from app.database import get_setting
+    return TariffSettings(
+        rate_per_hour=float(get_setting(db, "rate_per_hour", "1200.0")),
+        minimum_charge=float(get_setting(db, "minimum_charge", "300.0")),
+        grace_period_minutes=int(get_setting(db, "grace_period_minutes", "15")),
+    )
+
+
 # ─── Stay API ─────────────────────────────────────────────────────────────────
 
 @router.post("/stays/create", response_model=StayCreateResponse)
@@ -138,6 +154,42 @@ async def active_stays(
 ):
     stays = stay_manager.get_active_stays(db)
     return [StayOut.model_validate(s) for s in stays]
+
+
+# ─── Demo: Generate today's active stays ─────────────────────────────────────
+
+TOTAL_SPOTS = 14  # hard cap — matches the parking mask
+
+
+@router.post("/demo/generate-today")
+async def generate_today_stays(
+    _: User = Depends(require_employee),
+    db: Session = Depends(get_db),
+):
+    from app.services.demo_sync import DemoSyncService
+
+    adapter = VisionAdapter.get_instance()
+    state = adapter.get_state()
+
+    occupied_ids = [s["id"] for s in state["spots"] if not s["empty"]]
+    occupied_count = len(occupied_ids)
+    total = state.get("total", TOTAL_SPOTS)
+
+    if total == 0:
+        raise HTTPException(status_code=400, detail="No se detectan lugares en el mapa.")
+
+    new_stays = stay_manager.generate_today_active_stays(db, occupied_ids)
+
+    # Arm the sync service with the current occupancy snapshot
+    current_states = {s["id"]: not s["empty"] for s in state["spots"]}
+    DemoSyncService.get_instance().enable(current_states)
+
+    return {
+        "generated": len(new_stays),
+        "occupied_spots": occupied_count,
+        "total_spots": total,
+        "spot_ids": occupied_ids,
+    }
 
 
 # ─── Demo Mode ────────────────────────────────────────────────────────────────

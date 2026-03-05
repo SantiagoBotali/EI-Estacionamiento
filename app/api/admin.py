@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db, get_setting
 from app.models import Payment, PaymentStatus, Stay, StayStatus, SystemSetting, User
-from app.schemas import FinanceKPI, OperationsKPI, TariffSettings, TariffUpdate
+from app.schemas import FinanceKPI, OperationsKPI, RollupKPI, TariffSettings, TariffUpdate
 from app.security import require_admin
 from app.services.vision_adapter import VisionAdapter
 
@@ -177,6 +177,123 @@ async def finance_kpis(
         pendiente=round(pendiente, 2),
         ingresos_por_dia=ingresos_por_dia,
         por_metodo=por_metodo,
+    )
+
+
+# ─── Rollup KPIs (daily / monthly / yearly) ───────────────────────────────────
+
+@router.get("/kpis/rollup", response_model=RollupKPI)
+async def kpis_rollup(
+    granularity: str = "daily",
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # ── Scope & format ───────────────────────────────────────────────────────
+    if granularity == "monthly":
+        start_m = now.month - 11
+        start_y = now.year
+        if start_m <= 0:
+            start_m += 12
+            start_y -= 1
+        scope_start: datetime = datetime(start_y, start_m, 1, tzinfo=timezone.utc)
+        sqlite_fmt = "%Y-%m"
+        period_label = "Últimos 12 meses"
+    elif granularity == "yearly":
+        scope_start = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        sqlite_fmt = "%Y"
+        period_label = "Histórico"
+    else:
+        granularity = "daily"
+        scope_start = today_start - timedelta(days=29)
+        sqlite_fmt = "%Y-%m-%d"
+        period_label = "Últimos 30 días"
+
+    # ── Stays grouped by period ──────────────────────────────────────────────
+    period_expr = func.strftime(sqlite_fmt, Stay.entry_at)
+    stays_rows = (
+        db.query(period_expr.label("period"), func.count(Stay.id).label("cnt"))
+        .filter(Stay.entry_at >= scope_start)
+        .group_by(period_expr)
+        .order_by(period_expr)
+        .all()
+    )
+    stays_by_period = [{"period": r.period, "count": r.cnt} for r in stays_rows]
+    total_stays = sum(r.cnt for r in stays_rows)
+    peak_period = max(stays_rows, key=lambda r: r.cnt).period if stays_rows else None
+
+    # ── Average duration (stays that started in scope with an exit_at) ───────
+    closed_in_scope = (
+        db.execute(
+            select(Stay).where(Stay.entry_at >= scope_start, Stay.exit_at.isnot(None))
+        )
+        .scalars()
+        .all()
+    )
+    durations = []
+    for s in closed_in_scope:
+        entry = s.entry_at if s.entry_at.tzinfo else s.entry_at.replace(tzinfo=timezone.utc)
+        exit_ = s.exit_at if s.exit_at.tzinfo else s.exit_at.replace(tzinfo=timezone.utc)
+        durations.append((exit_ - entry).total_seconds() / 60)
+    avg_duration = sum(durations) / len(durations) if durations else 0.0
+
+    # ── Payments grouped by period ───────────────────────────────────────────
+    ts_col = func.coalesce(Payment.processed_at, Payment.created_at)
+    period_pay_expr = func.strftime(sqlite_fmt, ts_col)
+
+    rev_rows = (
+        db.query(period_pay_expr.label("period"), func.sum(Payment.amount).label("total"))
+        .filter(Payment.status == PaymentStatus.APPROVED, ts_col >= scope_start)
+        .group_by(period_pay_expr)
+        .order_by(period_pay_expr)
+        .all()
+    )
+    revenue_by_period = [{"period": r.period, "amount": round(r.total, 2)} for r in rev_rows]
+    total_revenue = sum(r.total for r in rev_rows)
+
+    pay_count = (
+        db.execute(
+            select(func.count(Payment.id)).where(
+                Payment.status == PaymentStatus.APPROVED, ts_col >= scope_start
+            )
+        ).scalar()
+        or 0
+    )
+    avg_ticket = total_revenue / pay_count if pay_count else 0.0
+
+    # ── By method (scope) ────────────────────────────────────────────────────
+    method_rows = (
+        db.query(Payment.method, func.sum(Payment.amount).label("total"))
+        .filter(Payment.status == PaymentStatus.APPROVED, ts_col >= scope_start)
+        .group_by(Payment.method)
+        .all()
+    )
+    by_method = [{"method": r.method, "amount": round(r.total, 2)} for r in method_rows]
+
+    # ── Pending (always real-time) ────────────────────────────────────────────
+    pending = (
+        db.execute(
+            select(func.coalesce(func.sum(Stay.amount_expected), 0)).where(
+                Stay.status.in_([StayStatus.ACTIVE, StayStatus.PAYMENT_PENDING])
+            )
+        ).scalar()
+        or 0.0
+    )
+
+    return RollupKPI(
+        granularity=granularity,
+        period_label=period_label,
+        total_stays=total_stays,
+        avg_duration_min=round(avg_duration, 1),
+        peak_period=peak_period,
+        total_revenue=round(total_revenue, 2),
+        avg_ticket=round(avg_ticket, 2),
+        pending=round(float(pending), 2),
+        stays_by_period=stays_by_period,
+        revenue_by_period=revenue_by_period,
+        by_method=by_method,
     )
 
 
