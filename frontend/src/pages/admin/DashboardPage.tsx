@@ -589,20 +589,6 @@ function CameraTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                 color={typeof pct === 'number' ? (pct < 50 ? 'text-emerald-400' : pct < 80 ? 'text-amber-400' : 'text-red-400') : 'text-slate-400'} />
             </div>
           </div>
-
-          <div className="card p-5 space-y-2.5">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-              Leyenda
-            </p>
-            <div className="flex items-center gap-2.5 text-sm">
-              <div className="w-4 h-4 rounded-sm bg-emerald-500/30 border border-emerald-500/60 shrink-0" />
-              <span className="text-slate-400">Lugar libre</span>
-            </div>
-            <div className="flex items-center gap-2.5 text-sm">
-              <div className="w-4 h-4 rounded-sm bg-red-500/30 border border-red-500/60 shrink-0" />
-              <span className="text-slate-400">Lugar ocupado</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -1012,16 +998,13 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const clearSearch = () => { setQuery(''); setLookupResult(null) }
 
   const [cashModal, setCashModal] = useState<{ stayId: string; amount: number } | null>(null)
-  const [cashAmount, setCashAmount] = useState('')
-  const [paying, setPaying]         = useState(false)
+  const [paying, setPaying]       = useState(false)
 
   const handleCash = async () => {
     if (!cashModal) return
-    const amount = parseFloat(cashAmount)
-    if (isNaN(amount) || amount <= 0) { toast('error', 'Monto inválido'); return }
     setPaying(true)
     try {
-      await closeCash(cashModal.stayId, amount)
+      await closeCash(cashModal.stayId)
       toast('success', 'Pago en efectivo registrado')
       setCashModal(null)
       clearSearch()
@@ -1048,7 +1031,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }
 
   const openCashModal = (stayId: string, amount: number) => {
-    setCashAmount(String(Math.ceil(amount)))
     setCashModal({ stayId, amount })
   }
 
@@ -1100,8 +1082,13 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <InfoRow label="Ingreso"        value={formatDateTime(lookupResult.stay.entry_at)} />
-            <InfoRow label="Monto esperado" value={formatCurrency(lookupResult.amount_expected)} />
+            <InfoRow label="Ingreso" value={formatDateTime(lookupResult.stay.entry_at)} />
+            {lookupResult.stay.exit_at && (
+              <InfoRow label="Salida" value={formatDateTime(lookupResult.stay.exit_at)} />
+            )}
+            {lookupResult.stay.status === 'CLOSED' && (
+              <InfoRow label="Monto cobrado" value={formatCurrency(lookupResult.stay.amount_paid ?? 0)} />
+            )}
             {lookupResult.stay.notes && <InfoRow label="Notas" value={lookupResult.stay.notes} />}
           </div>
           {(lookupResult.stay.status === 'ACTIVE' || lookupResult.stay.status === 'PAYMENT_PENDING') && (
@@ -1227,24 +1214,13 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
       {/* Cash modal */}
       {cashModal && (
         <StaysModal title="Cobro en efectivo" onClose={() => setCashModal(null)}>
-          <p className="text-slate-400 text-sm mb-4">
-            Monto sugerido:{' '}
-            <strong className="text-white">{formatCurrency(cashModal.amount)}</strong>
-          </p>
-          <input
-            type="number"
-            value={cashAmount}
-            onChange={(e) => setCashAmount(e.target.value)}
-            placeholder="Monto cobrado"
-            className="input mb-4"
-            min={0}
-            step={50}
-          />
+          <p className="text-slate-400 text-sm mb-1">Monto a cobrar</p>
+          <p className="text-3xl font-bold text-white mb-6">{formatCurrency(cashModal.amount)}</p>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setCashModal(null)} className="btn-secondary">Cancelar</button>
             <button onClick={handleCash} disabled={paying} className="btn-success">
               {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
-              Confirmar cobro
+              Cobrar
             </button>
           </div>
         </StaysModal>

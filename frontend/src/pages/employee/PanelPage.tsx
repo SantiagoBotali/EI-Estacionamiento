@@ -307,16 +307,13 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   // ── Shared payment handlers ──────────────────────────────
   const [cashModal, setCashModal] = useState<{ stayId: string; amount: number } | null>(null)
-  const [cashAmount, setCashAmount] = useState('')
-  const [paying, setPaying]         = useState(false)
+  const [paying, setPaying]       = useState(false)
 
   const handleCash = async () => {
     if (!cashModal) return
-    const amount = parseFloat(cashAmount)
-    if (isNaN(amount) || amount <= 0) { toast('error', 'Monto inválido'); return }
     setPaying(true)
     try {
-      await closeCash(cashModal.stayId, amount)
+      await closeCash(cashModal.stayId)
       toast('success', 'Pago en efectivo registrado')
       setCashModal(null)
       clearSearch()
@@ -343,7 +340,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }
 
   const openCashModal = (stayId: string, amount: number) => {
-    setCashAmount(String(Math.ceil(amount)))
     setCashModal({ stayId, amount })
   }
 
@@ -399,8 +395,13 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <InfoRow label="Ingreso"        value={formatDateTime(lookupResult.stay.entry_at)} />
-            <InfoRow label="Monto esperado" value={formatCurrency(lookupResult.amount_expected)} />
+            <InfoRow label="Ingreso" value={formatDateTime(lookupResult.stay.entry_at)} />
+            {lookupResult.stay.exit_at && (
+              <InfoRow label="Salida" value={formatDateTime(lookupResult.stay.exit_at)} />
+            )}
+            {lookupResult.stay.status === 'CLOSED' && (
+              <InfoRow label="Monto cobrado" value={formatCurrency(lookupResult.stay.amount_paid ?? 0)} />
+            )}
             {lookupResult.stay.notes && (
               <InfoRow label="Notas" value={lookupResult.stay.notes} />
             )}
@@ -533,26 +534,15 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
       {/* ── Cash modal (shared) ── */}
       {cashModal && (
         <Modal title="Cobro en efectivo" onClose={() => setCashModal(null)}>
-          <p className="text-slate-400 text-sm mb-4">
-            Monto sugerido:{' '}
-            <strong className="text-white">{formatCurrency(cashModal.amount)}</strong>
-          </p>
-          <input
-            type="number"
-            value={cashAmount}
-            onChange={(e) => setCashAmount(e.target.value)}
-            placeholder="Monto cobrado"
-            className="input mb-4"
-            min={0}
-            step={50}
-          />
+          <p className="text-slate-400 text-sm mb-1">Monto a cobrar</p>
+          <p className="text-3xl font-bold text-white mb-6">{formatCurrency(cashModal.amount)}</p>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setCashModal(null)} className="btn-secondary">Cancelar</button>
             <button onClick={handleCash} disabled={paying} className="btn-success">
               {paying
                 ? <Loader2    className="w-4 h-4 animate-spin" />
                 : <CreditCard className="w-4 h-4" />}
-              Confirmar cobro
+              Cobrar
             </button>
           </div>
         </Modal>
@@ -698,21 +688,34 @@ function Modal({ title, onClose, children }: {
 }
 
 function printTicket(code: string, entryAt: string, barcodeSvg: string) {
-  const win = window.open('', '_blank', 'width=420,height=550')
+  const win = window.open('', '_blank', 'width=320,height=340')
   if (!win) return
   win.document.write(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><title>Ticket ${code}</title>
-<style>body{font-family:Arial,sans-serif;text-align:center;padding:24px;color:#111;}
-h1{font-size:20px;margin-bottom:4px;}.sub{color:#666;font-size:13px;margin-bottom:20px;}
-.code{font-size:22px;font-weight:700;letter-spacing:3px;margin:12px 0;}
-.label{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;}
-.barcode svg{max-width:320px;}hr{border:none;border-top:1px dashed #ccc;margin:16px 0;}</style>
+<style>
+@page{size:80mm 90mm;margin:0;}
+*{box-sizing:border-box;}
+body{font-family:Arial,sans-serif;text-align:center;padding:8px 10px;color:#111;width:80mm;margin:0;}
+h1{font-size:14px;margin:0 0 2px;}
+.sub{color:#666;font-size:10px;margin:0 0 6px;}
+.code{font-size:18px;font-weight:700;letter-spacing:2px;margin:4px 0;}
+.label{font-size:9px;color:#888;text-transform:uppercase;letter-spacing:1px;margin:0;}
+p{margin:2px 0;font-size:12px;}
+.barcode svg{width:100%;max-width:240px;height:auto;}
+hr{border:none;border-top:1px dashed #ccc;margin:6px 0;}
+.footer{font-size:9px;color:#aaa;}
+</style>
 </head><body>
-<h1>Estacionamiento SDG+</h1><p class="sub">Sistema Inteligente de Gestión</p><hr/>
-<p class="label">Código de ticket</p><p class="code">${code}</p>
-<p class="label">Ingreso</p><p>${new Date(entryAt).toLocaleString('es-AR')}</p>
-<div class="barcode">${barcodeSvg}</div><hr/>
-<p class="label" style="font-size:10px;color:#aaa">Conserve este ticket para su retiro</p>
+<h1>Estacionamiento SDG+</h1>
+<p class="sub">Sistema Inteligente de Gestión</p>
+<hr/>
+<p class="label">Código de ticket</p>
+<p class="code">${code}</p>
+<p class="label">Ingreso</p>
+<p>${new Date(entryAt).toLocaleString('es-AR')}</p>
+<div class="barcode">${barcodeSvg}</div>
+<hr/>
+<p class="footer">Conserve este ticket para su retiro</p>
 <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),2000)}<\/script>
 </body></html>`)
   win.document.close()

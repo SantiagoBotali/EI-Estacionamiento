@@ -29,19 +29,6 @@ class UserOut(BaseModel):
     created_at: datetime
 
 
-# ─── Parking Slot ────────────────────────────────────────────────────────────
-
-class ParkingSlotOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    slot_number: str
-    vision_id: int
-    status: str
-    demo_override: bool
-    last_updated: datetime
-
-
 # ─── Parking State (public) ──────────────────────────────────────────────────
 
 class SpotState(BaseModel):
@@ -109,10 +96,6 @@ class StayLookupResponse(BaseModel):
     amount_expected: float
 
 
-class CloseCashRequest(BaseModel):
-    amount: float
-
-
 # ─── Payment ─────────────────────────────────────────────────────────────────
 
 class PaymentOut(BaseModel):
@@ -130,12 +113,6 @@ class PaymentOut(BaseModel):
 class PaymentResponse(BaseModel):
     payment: PaymentOut
     stay: StayOut
-
-
-# ─── Demo Mode ───────────────────────────────────────────────────────────────
-
-class DemoSlotToggle(BaseModel):
-    occupied: bool
 
 
 # ─── Tariff Settings ─────────────────────────────────────────────────────────

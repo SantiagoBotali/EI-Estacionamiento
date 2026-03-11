@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
-    Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+    Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,11 +23,6 @@ def _uuid():
 class UserRole(str, PyEnum):
     EMPLOYEE = "EMPLOYEE"
     ADMIN = "ADMIN"
-
-
-class SlotStatus(str, PyEnum):
-    FREE = "FREE"
-    OCCUPIED = "OCCUPIED"
 
 
 class StayStatus(str, PyEnum):
@@ -68,34 +63,6 @@ class User(Base):
     stays_closed: Mapped[list["Stay"]] = relationship(
         "Stay", foreign_keys="Stay.closed_by_id", back_populates="closed_by"
     )
-
-
-class ParkingSlot(Base):
-    __tablename__ = "parking_slots"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    slot_number: Mapped[str] = mapped_column(String(16), nullable=False)
-    vision_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default=SlotStatus.FREE)
-    demo_override: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    last_updated: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
-    )
-
-    __table_args__ = (UniqueConstraint("vision_id", name="uq_parking_slots_vision_id"),)
-
-
-class OccupancySnapshot(Base):
-    __tablename__ = "occupancy_snapshots"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, index=True
-    )
-    total: Mapped[int] = mapped_column(Integer, nullable=False)
-    occupied: Mapped[int] = mapped_column(Integer, nullable=False)
-    free: Mapped[int] = mapped_column(Integer, nullable=False)
-    raw_data: Mapped[str] = mapped_column(Text, nullable=True)  # JSON string
 
 
 class Stay(Base):

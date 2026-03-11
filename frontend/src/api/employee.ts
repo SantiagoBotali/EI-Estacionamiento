@@ -60,11 +60,8 @@ export function lookupStay(query: string): Promise<StayLookupResponse> {
   return apiFetch('/api/employee/stays/lookup', { method: 'POST', body: { query } })
 }
 
-export function closeCash(stayId: string, amount: number): Promise<Stay> {
-  return apiFetch(`/api/employee/stays/${stayId}/close-cash`, {
-    method: 'POST',
-    body: { amount },
-  })
+export function closeCash(stayId: string): Promise<Stay> {
+  return apiFetch(`/api/employee/stays/${stayId}/close-cash`, { method: 'POST' })
 }
 
 export function getActiveStays(): Promise<ActiveStay[]> {

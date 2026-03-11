@@ -42,24 +42,11 @@ class VisionAdapter:
         with self._state_lock:
             self._frame = frame.copy()
 
-    def get_state(self, demo_overrides: Optional[dict[int, bool]] = None) -> dict:
-        """
-        Returns current parking state.
-
-        Args:
-            demo_overrides: dict mapping vision_id -> occupied (bool).
-                            When set, overrides the vision status for those slots.
-        """
+    def get_state(self) -> dict:
+        """Returns current parking state."""
         with self._state_lock:
             spots = [s.copy() for s in self._spots]
             last_updated = self._last_updated
-
-        # Apply demo overrides (occupied=True → empty=False)
-        if demo_overrides:
-            for spot in spots:
-                vid = spot["id"]
-                if vid in demo_overrides:
-                    spot["empty"] = not demo_overrides[vid]
 
         free = sum(1 for s in spots if s["empty"])
         total = len(spots)

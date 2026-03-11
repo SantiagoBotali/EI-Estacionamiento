@@ -40,27 +40,8 @@ async def public_entry(db: Session = Depends(get_db)):
 @router.get("/api/public/parking/state")
 async def parking_state():
     adapter = VisionAdapter.get_instance()
-    state = adapter.get_state(_get_demo_overrides())
+    state = adapter.get_state()
     return state
-
-
-def _get_demo_overrides() -> dict[int, bool]:
-    """Fetch demo overrides from DB (cached per request is fine for now)."""
-    try:
-        from app.database import SessionLocal
-        from app.models import ParkingSlot
-        from sqlalchemy import select
-
-        db = SessionLocal()
-        try:
-            stmt = select(ParkingSlot).where(ParkingSlot.demo_override == True)  # noqa: E712
-            slots = db.execute(stmt).scalars().all()
-            return {slot.vision_id: True for slot in slots}
-        finally:
-            db.close()
-    except Exception as e:
-        logger.warning("Could not fetch demo overrides: %s", e)
-        return {}
 
 
 async def _sse_generator(request: Request) -> AsyncGenerator[str, None]:
@@ -69,7 +50,7 @@ async def _sse_generator(request: Request) -> AsyncGenerator[str, None]:
         if await request.is_disconnected():
             break
         try:
-            state = adapter.get_state(_get_demo_overrides())
+            state = adapter.get_state()
             payload = {
                 "spots": state["spots"],
                 "free": state["free"],
