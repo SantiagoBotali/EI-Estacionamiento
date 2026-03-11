@@ -173,24 +173,24 @@ export function KioskPage() {
 }
 
 function printTicket(entry: EntryResponse) {
-  const win = window.open('', '_blank', 'width=420,height=550')
+  const win = window.open('', '_blank', 'width=320,height=340')
   if (!win) return
   win.document.write(`<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<title>Ticket ${entry.ticket_code}</title>
+<html lang="es"><head><meta charset="UTF-8"><title>Ticket ${entry.ticket_code}</title>
 <style>
-  body { font-family: Arial, sans-serif; text-align: center; padding: 24px; color: #111; }
-  h1  { font-size: 20px; margin-bottom: 4px; }
-  .sub { color: #666; font-size: 13px; margin-bottom: 20px; }
-  .code { font-size: 22px; font-weight: 700; letter-spacing: 3px; margin: 12px 0; }
-  .label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-  .barcode svg { max-width: 320px; }
-  hr { border: none; border-top: 1px dashed #ccc; margin: 16px 0; }
+@page{size:80mm 90mm;margin:0;}
+*{box-sizing:border-box;}
+body{font-family:Arial,sans-serif;text-align:center;padding:8px 10px;color:#111;width:80mm;margin:0;}
+h1{font-size:14px;margin:0 0 2px;}
+.sub{color:#666;font-size:10px;margin:0 0 6px;}
+.code{font-size:18px;font-weight:700;letter-spacing:2px;margin:4px 0;}
+.label{font-size:9px;color:#888;text-transform:uppercase;letter-spacing:1px;margin:0;}
+p{margin:2px 0;font-size:12px;}
+.barcode svg{width:100%;max-width:240px;height:auto;}
+hr{border:none;border-top:1px dashed #ccc;margin:6px 0;}
+.footer{font-size:9px;color:#aaa;}
 </style>
-</head>
-<body>
+</head><body>
 <h1>Estacionamiento SDG+</h1>
 <p class="sub">Sistema Inteligente de Gestión</p>
 <hr/>
@@ -200,9 +200,8 @@ function printTicket(entry: EntryResponse) {
 <p>${new Date(entry.entry_at).toLocaleString('es-AR')}</p>
 <div class="barcode">${entry.barcode_svg}</div>
 <hr/>
-<p class="label" style="font-size:10px;color:#aaa">Conserve este ticket para su retiro</p>
+<p class="footer">Conserve este ticket para su retiro</p>
 <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),2000)}<\/script>
-</body>
-</html>`)
+</body></html>`)
   win.document.close()
 }
