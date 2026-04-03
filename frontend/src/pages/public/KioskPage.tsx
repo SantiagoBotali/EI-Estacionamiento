@@ -62,13 +62,9 @@ export function KioskPage() {
 
       {/* Brand */}
       <div className="flex items-center gap-3 mb-12">
-        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl
-                        flex items-center justify-center shadow-xl shadow-blue-900/50">
-          <ParkingCircle className="w-7 h-7 text-white" />
-        </div>
         <div>
-          <p className="font-bold text-white text-xl leading-none">Estacionamiento SDG+</p>
-          <p className="text-slate-500 text-sm">Sistema de entrada</p>
+          <p className="font-bold text-white text-xl leading-none"></p>
+          <p className="text-slate-500 text-sm"></p>
         </div>
       </div>
 
@@ -76,7 +72,6 @@ export function KioskPage() {
       {phase === 'idle' && (
         <div className="text-center animate-fade-in">
           <p className="text-slate-400 text-lg mb-8">
-            Toque el botón para registrar su ingreso
           </p>
           {error && (
             <div className="mb-6 bg-red-950/60 border border-red-700/50 text-red-300

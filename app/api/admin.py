@@ -83,9 +83,9 @@ async def operations_kpis(
     state = adapter.get_state()
     tasa = state["occupancy_rate"] * 100 if state["total"] > 0 else 0.0
 
-    # Autos por hora (hoy)
+    # Autos por hora (hoy) — horario operativo 07:00–21:00
     autos_por_hora = []
-    for h in range(24):
+    for h in range(7, 22):
         hour_start = today_start + timedelta(hours=h)
         hour_end = hour_start + timedelta(hours=1)
         cnt_stmt = select(func.count(Stay.id)).where(
