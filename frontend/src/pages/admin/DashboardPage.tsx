@@ -30,12 +30,12 @@ import { formatCurrency, formatDateTime, formatDuration, getStatusBadge, getStat
 type Tab = 'operations' | 'finance' | 'camera' | 'live' | 'dashboards' | 'stays'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
-  { id: 'operations', icon: <BarChart2     className="w-5 h-5" />, label: 'Operaciones' },
-  { id: 'finance',    icon: <DollarSign    className="w-5 h-5" />, label: 'Finanzas'    },
-  { id: 'stays',      icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías'    },
-  { id: 'dashboards', icon: <Calendar      className="w-5 h-5" />, label: 'Dashboards'  },
-  { id: 'camera',     icon: <Camera        className="w-5 h-5" />, label: 'Cámara'      },
-  { id: 'live',       icon: <MapPin        className="w-5 h-5" />, label: 'En vivo'     },
+  { id: 'operations', icon: <BarChart2 className="w-5 h-5" />, label: 'Operaciones' },
+  { id: 'finance', icon: <DollarSign className="w-5 h-5" />, label: 'Finanzas' },
+  { id: 'stays', icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías' },
+  { id: 'dashboards', icon: <Calendar className="w-5 h-5" />, label: 'Dashboards' },
+  { id: 'camera', icon: <Camera className="w-5 h-5" />, label: 'Cámara' },
+  { id: 'live', icon: <MapPin className="w-5 h-5" />, label: 'En vivo' },
 ]
 
 const CHART_THEME = {
@@ -147,11 +147,11 @@ export function AdminDashboardPage() {
       <main className="flex-1 overflow-auto">
         <div className="p-5 lg:p-7 animate-fade-in">
           {tab === 'operations' && <OperationsTab toast={toast} />}
-          {tab === 'finance'    && <FinanceTab    toast={toast} />}
-          {tab === 'stays'      && <StaysTab      toast={toast} />}
+          {tab === 'finance' && <FinanceTab toast={toast} />}
+          {tab === 'stays' && <StaysTab toast={toast} />}
           {tab === 'dashboards' && <DashboardsTab toast={toast} />}
-          {tab === 'camera'     && <CameraTab     toast={toast} />}
-          {tab === 'live'       && <LiveTab />}
+          {tab === 'camera' && <CameraTab toast={toast} />}
+          {tab === 'live' && <LiveTab />}
         </div>
       </main>
     </div>
@@ -168,7 +168,9 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [tariff, setTariff] = useState<TariffSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [newRate, setNewRate] = useState('')
+  const [newMinimum, setNewMinimum] = useState('')
   const [rateError, setRateError] = useState('')
+  const [minimumError, setMinimumError] = useState('')
   const [saving, setSaving] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [confirmRate, setConfirmRate] = useState<number | null>(null)
@@ -196,12 +198,15 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     setConfirmRate(null)
     setSaving(true)
     try {
-      await updateTariff(rate)
+      const parsedMin = newMinimum.trim() ? parseFloat(newMinimum.trim()) : undefined
+      await updateTariff(rate, parsedMin)
       // Re-fetch to get the server's canonical values — prevents NaN from PUT response
       const updated = await getTariffSettings()
       setTariff(updated)
       setNewRate('')
+      setNewMinimum('')
       setRateError('')
+      setMinimumError('')
       toast('success', 'Tarifa actualizada')
     } catch (err) {
       toast('error', (err as Error).message)
@@ -213,17 +218,34 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const saveTariff = (e: FormEvent) => {
     e.preventDefault()
     const trimmed = newRate.trim()
-    const rate = parseFloat(trimmed)
-    if (!trimmed || isNaN(rate) || rate <= 0) {
+    const minTrimmed = newMinimum.trim()
+    const rate = trimmed ? parseFloat(trimmed) : undefined
+    const minimum = minTrimmed ? parseFloat(minTrimmed) : undefined
+
+    let hasError = false
+    if (trimmed && (isNaN(rate!) || rate! <= 0)) {
       setRateError('Ingresá un valor numérico mayor a 0')
+      hasError = true
+    } else {
+      setRateError('')
+    }
+    if (minTrimmed && (isNaN(minimum!) || minimum! <= 0)) {
+      setMinimumError('Ingresá un valor numérico mayor a 0')
+      hasError = true
+    } else {
+      setMinimumError('')
+    }
+    if (hasError) return
+    if (!trimmed && !minTrimmed) {
+      setRateError('Ingresá al menos un valor a actualizar')
       return
     }
-    setRateError('')
-    if (rate > HIGH_RATE_THRESHOLD) {
+
+    if (rate !== undefined && rate > HIGH_RATE_THRESHOLD) {
       setConfirmRate(rate)
       return
     }
-    doSave(rate)
+    doSave(rate ?? tariff?.rate_per_hour ?? 0)
   }
 
   if (loading) return <LoadingScreen />
@@ -267,7 +289,7 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <ChartCard title="Autos por hora (hoy)">
+        <ChartCard title="Ingreso de Autos por Hora (Hoy)">
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={kpi?.autos_por_hora ?? []} barSize={10}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
@@ -291,7 +313,7 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Autos por día (últimos 7 días)">
+        <ChartCard title="Ingreso de Autos por Día (Últimos 7 Días)">
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={kpi?.autos_por_dia ?? []}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
@@ -336,7 +358,7 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             </div>
           </div>
           <form onSubmit={saveTariff} className="flex flex-col gap-2 pt-1">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <div className="flex flex-col gap-1 max-w-xs w-full">
                 <input
                   type="text"
@@ -355,6 +377,26 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                 />
                 {rateError && (
                   <p className="text-red-400 text-xs">{rateError}</p>
+                )}
+              </div>
+              <div className="flex flex-col gap-1 max-w-xs w-full">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={newMinimum}
+                  onChange={(e) => { setNewMinimum(e.target.value); setMinimumError('') }}
+                  onBlur={() => {
+                    const trimmed = newMinimum.trim()
+                    if (trimmed && (isNaN(parseFloat(trimmed)) || parseFloat(trimmed) <= 0)) {
+                      setMinimumError('Ingresá un valor numérico mayor a 0')
+                    }
+                  }}
+                  placeholder="Nuevo mínimo (ARS)"
+                  className={`input w-full ${minimumError ? 'border-red-500/60 focus:border-red-500' : ''}`}
+                  disabled={saving}
+                />
+                {minimumError && (
+                  <p className="text-red-400 text-xs">{minimumError}</p>
                 )}
               </div>
               <button type="submit" disabled={saving} className="btn-primary shrink-0 self-start">
@@ -756,8 +798,8 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
               key={g}
               onClick={() => switchGran(g)}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g
-                  ? 'bg-purple-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-purple-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-200'
                 }`}
             >
               {GRAN_LABELS[g]}
@@ -920,7 +962,12 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 function computeLiveAmount(entryAtStr: string, tariff: TariffInfo | null): number {
   if (!tariff) return 0
   try {
-    const entryMs = new Date(entryAtStr).getTime()
+    // entry_at is stored as naive ARS time; append the ARS offset so JS treats it correctly
+    // regardless of the browser's local timezone.
+    const arsStr = entryAtStr.includes('+') || entryAtStr.endsWith('Z') || entryAtStr.includes('-0')
+      ? entryAtStr
+      : entryAtStr + '-03:00'
+    const entryMs = new Date(arsStr).getTime()
     if (isNaN(entryMs)) return 0
     const durationMin = Math.max(0, (Date.now() - entryMs) / 60_000)
     if (durationMin <= tariff.grace_period_minutes) return 0
@@ -934,7 +981,7 @@ function computeLiveAmount(entryAtStr: string, tariff: TariffInfo | null): numbe
 }
 
 function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
-  const [stays, setStays]               = useState<ActiveStay[]>([])
+  const [stays, setStays] = useState<ActiveStay[]>([])
   const [staysLoading, setStaysLoading] = useState(true)
 
   const loadStays = useCallback(async () => {
@@ -955,7 +1002,7 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   const [tariff, setTariff] = useState<TariffInfo | null>(null)
   useEffect(() => {
-    getEmployeeTariff().then(setTariff).catch(() => {})
+    getEmployeeTariff().then(setTariff).catch(() => { })
   }, [])
 
   const [generating, setGenerating] = useState(false)
@@ -978,9 +1025,9 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     return () => clearInterval(id)
   }, [])
 
-  const [query, setQuery]                 = useState('')
+  const [query, setQuery] = useState('')
   const [searchLoading, setSearchLoading] = useState(false)
-  const [lookupResult, setLookupResult]   = useState<StayLookupResponse | null>(null)
+  const [lookupResult, setLookupResult] = useState<StayLookupResponse | null>(null)
 
   const handleSearch = async () => {
     if (!query.trim()) return
@@ -998,7 +1045,7 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const clearSearch = () => { setQuery(''); setLookupResult(null) }
 
   const [cashModal, setCashModal] = useState<{ stayId: string; amount: number } | null>(null)
-  const [paying, setPaying]       = useState(false)
+  const [paying, setPaying] = useState(false)
 
   const handleCash = async () => {
     if (!cashModal) return
@@ -1092,24 +1139,30 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             {lookupResult.stay.notes && <InfoRow label="Notas" value={lookupResult.stay.notes} />}
           </div>
           {(lookupResult.stay.status === 'ACTIVE' || lookupResult.stay.status === 'PAYMENT_PENDING') && (
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => openCashModal(lookupResult.stay.id, lookupResult.amount_expected)}
-                className="btn-success"
-                disabled={paying}
-              >
-                <CreditCard className="w-4 h-4" />
-                Cobrar efectivo
-              </button>
-              <button
-                onClick={() => handleSimulate(lookupResult.stay.id)}
-                className="btn-primary"
-                disabled={paying}
-              >
-                {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-                Pago simulado
-              </button>
-            </div>
+            <>
+              <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl px-4 py-3">
+                <p className="text-slate-500 text-xs uppercase tracking-widest mb-1">Monto estimado</p>
+                <p className="text-2xl font-bold text-emerald-400 tabular-nums">{formatCurrency(lookupResult.amount_expected)}</p>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => openCashModal(lookupResult.stay.id, lookupResult.amount_expected)}
+                  className="btn-success"
+                  disabled={paying}
+                >
+                  <CreditCard className="w-4 h-4" />
+                  Cobrar efectivo
+                </button>
+                <button
+                  onClick={() => handleSimulate(lookupResult.stay.id)}
+                  className="btn-primary"
+                  disabled={paying}
+                >
+                  {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+                  Pago simulado
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -1214,8 +1267,10 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
       {/* Cash modal */}
       {cashModal && (
         <StaysModal title="Cobro en efectivo" onClose={() => setCashModal(null)}>
-          <p className="text-slate-400 text-sm mb-1">Monto a cobrar</p>
-          <p className="text-3xl font-bold text-white mb-6">{formatCurrency(cashModal.amount)}</p>
+          <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl px-5 py-4 mb-5">
+            <p className="text-slate-500 text-xs uppercase tracking-widest mb-1">Monto</p>
+            <p className="text-4xl font-bold text-emerald-400 tabular-nums">{formatCurrency(cashModal.amount)}</p>
+          </div>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setCashModal(null)} className="btn-secondary">Cancelar</button>
             <button onClick={handleCash} disabled={paying} className="btn-success">

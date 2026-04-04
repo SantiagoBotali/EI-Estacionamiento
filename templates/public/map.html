@@ -1,169 +1,284 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Estacionamiento — Mapa en Tiempo Real</title>
-    <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body {
-        font-family: Arial, sans-serif;
-        background: #111827;
-        color: #f9fafb;
-        min-height: 100vh;
-      }
 
-      /* ── Header ── */
-      header {
-        background: #1f2937;
-        border-bottom: 1px solid #374151;
-        padding: 12px 20px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-      header h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.03em; }
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Estacionamiento — Mapa en Tiempo Real</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-      /* ── Stats bar ── */
-      #stats-bar {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        flex-wrap: wrap;
-      }
-      .stat-badge {
-        padding: 4px 14px;
-        border-radius: 20px;
-        font-size: 0.85rem;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-      }
-      .stat-badge.free { background: #065f46; color: #6ee7b7; }
-      .stat-badge.occupied { background: #7f1d1d; color: #fca5a5; }
-      .stat-badge.neutral { background: #374151; color: #d1d5db; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #111827;
+      color: #f9fafb;
+      min-height: 100vh;
+    }
 
-      /* Occupancy color classes */
-      .occ-low  { color: #34d399; }
-      .occ-mid  { color: #fbbf24; }
-      .occ-high { color: #f87171; }
+    /* ── Header ── */
+    header {
+      background: #1f2937;
+      border-bottom: 1px solid #374151;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
 
-      /* ── Connection dot ── */
-      #conn-dot {
-        width: 10px; height: 10px;
-        border-radius: 50%;
-        display: inline-block;
-        background: #6b7280;
-        transition: background 0.4s;
-      }
-      #conn-dot.connected { background: #34d399; }
-      #conn-dot.connecting { background: #fbbf24; }
-      #conn-dot.error { background: #f87171; }
+    header h1 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
 
-      /* ── Parking lot container ── */
-      #parking-wrapper {
-        display: flex;
-        justify-content: center;
-        padding: 20px 12px 40px;
-      }
-      #parking-lot {
-        position: relative;
-        background: #222;
-        border-radius: 12px;
-        box-shadow: 2px 2px 16px #0008;
-        overflow: hidden;
-        max-width: 100%;
-        transition: background 0.25s;
-      }
-      #parking-lot.mode-custom {
-        background: #222 url('/Media/map_test.png') center/cover no-repeat;
-      }
+    /* ── Stats bar ── */
+    #stats-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
 
-      /* ── Mode toggle ── */
-      #map-mode-btn {
-        position: absolute; top: 8px; right: 8px; z-index: 20;
-        display: flex; align-items: center; gap: 6px;
-        padding: 4px 10px; border-radius: 8px; border: none; cursor: pointer;
-        font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
-        font-family: Arial, sans-serif;
-        background: rgba(255,255,255,0.12); color: #cbd5e1;
-        backdrop-filter: blur(6px);
-        box-shadow: 0 1px 6px rgba(0,0,0,0.4);
-        transition: background 0.2s, color 0.2s;
-      }
-      #map-mode-btn.mode-custom {
-        background: rgba(0,0,0,0.55); color: #d1fae5;
-      }
+    .stat-badge {
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
 
-      /* ── Lines layer ── */
-      #lot-lines { position: absolute; inset: 0; z-index: 3; pointer-events: none; transition: opacity 0.25s; }
-      .mode-custom #lot-lines { opacity: 0; }
-      .lot-line { position: absolute; background: rgba(255,255,255,0.96); border-radius: 2px; }
-      .lot-line.v { width: 3px; }
-      .lot-line.h { height: 3px; }
+    .stat-badge.free {
+      background: #065f46;
+      color: #6ee7b7;
+    }
 
-      /* ── Spots ── */
-      .spot { position: absolute; box-sizing: border-box; color: #fff; font-weight: 700; border: none; z-index: 1; }
-      .spot.empty    { background: transparent; padding: 0; }
-      .spot.occupied { background: transparent; padding: 0; }
+    .stat-badge.occupied {
+      background: #7f1d1d;
+      color: #fca5a5;
+    }
 
-      /* ── Car icon ── */
-      .car-icon {
-        position: absolute; left: 50%; top: 50%;
-        width: 330px; height: 330px;
-        object-fit: contain; pointer-events: none;
-        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));
-        transform-origin: 50% 50%;
-        z-index: 4;
-      }
+    .stat-badge.neutral {
+      background: #374151;
+      color: #d1d5db;
+    }
 
-      /* ── Label ── */
-      .label {
-        position: absolute; left: 4px; bottom: 4px;
-        font-size: 12px; line-height: 1;
-        background: rgba(0,0,0,0.35);
-        padding: 2px 6px; border-radius: 4px;
-        pointer-events: none; color: #fff; z-index: 5;
-      }
+    /* Occupancy color classes */
+    .occ-low {
+      color: #34d399;
+    }
 
-      /* ── No-data overlay ── */
-      #no-data {
-        position: absolute; inset: 0;
-        display: flex; align-items: center; justify-content: center;
-        background: rgba(0,0,0,0.6);
-        color: #9ca3af; font-size: 1rem;
-        z-index: 10;
-      }
+    .occ-mid {
+      color: #fbbf24;
+    }
 
-      /* ── Responsive ── */
-      @media (max-width: 520px) {
-        #parking-lot { transform-origin: top center; transform: scale(0.75); margin-bottom: -120px; }
-      }
-    </style>
-  </head>
-  <body>
-    <header>
-      <h1>🅿 Estacionamiento — Mapa en Tiempo Real</h1>
-      <div id="stats-bar">
-        <span class="stat-badge free">— LIBRES</span>
-        <span class="stat-badge occupied">— OCUPADOS</span>
-        <span class="stat-badge neutral">— TOTAL</span>
-        <span title="Estado de conexión">
-          <span id="conn-dot" class="connecting"></span>
-          <span id="conn-label" style="font-size:0.75rem;margin-left:4px;color:#9ca3af;">conectando…</span>
-        </span>
-      </div>
-    </header>
+    .occ-high {
+      color: #f87171;
+    }
 
-    <div id="parking-wrapper">
+    /* ── Connection dot ── */
+    #conn-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      background: #6b7280;
+      transition: background 0.4s;
+    }
+
+    #conn-dot.connected {
+      background: #34d399;
+    }
+
+    #conn-dot.connecting {
+      background: #fbbf24;
+    }
+
+    #conn-dot.error {
+      background: #f87171;
+    }
+
+    /* ── Parking lot container ── */
+    #parking-wrapper {
+      display: flex;
+      justify-content: center;
+      padding: 20px 12px 40px;
+      /* Permite que el wrapper se ajuste al tamaño escalado */
+      overflow: hidden;
+    }
+
+    #lot-scale-wrapper {
+      /* El ancho/alto real del mapa se define por JS (MASK_WIDTH/HEIGHT).
+           Este div escala el contenido para caber en el viewport. */
+      transform-origin: top center;
+      flex-shrink: 0;
+    }
+
+    #parking-lot {
+      position: relative;
+      background: #222;
+      border-radius: 12px;
+      box-shadow: 2px 2px 16px #0008;
+      overflow: hidden;
+      transition: background 0.25s;
+    }
+
+    #parking-lot.mode-custom {
+      background: #222 url('/Media/map_test.png') center/cover no-repeat;
+    }
+
+    /* ── Mode toggle ── */
+    #map-mode-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      font-family: Arial, sans-serif;
+      background: rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+      backdrop-filter: blur(6px);
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+      transition: background 0.2s, color 0.2s;
+    }
+
+    #map-mode-btn.mode-custom {
+      background: rgba(0, 0, 0, 0.55);
+      color: #d1fae5;
+    }
+
+    /* ── Lines layer ── */
+    #lot-lines {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+
+    .mode-custom #lot-lines {
+      opacity: 0;
+    }
+
+    .lot-line {
+      position: absolute;
+      background: rgba(255, 255, 255, 0.96);
+      border-radius: 2px;
+    }
+
+    /* ── Spot outline (modo clásico) ── */
+    .spot-outline {
+      position: absolute;
+      border: 2px solid rgba(255,255,255,0.55);
+      border-radius: 4px;
+      background: rgba(255,255,255,0.05);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* ── Spots ── */
+    .spot {
+      position: absolute;
+      box-sizing: border-box;
+      color: #fff;
+      font-weight: 700;
+      border: none;
+      z-index: 1;
+    }
+
+    .spot.empty {
+      background: transparent;
+      padding: 0;
+    }
+
+    .spot.occupied {
+      background: transparent;
+      padding: 0;
+    }
+
+    /* ── Car icon ── */
+    .car-icon {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 330px;
+      height: 330px;
+      object-fit: contain;
+      pointer-events: none;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+      transform-origin: 50% 50%;
+      z-index: 4;
+    }
+
+    /* ── Label ── */
+    .label {
+      position: absolute;
+      left: 4px;
+      bottom: 4px;
+      font-size: 12px;
+      line-height: 1;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 2px 6px;
+      border-radius: 4px;
+      pointer-events: none;
+      color: #fff;
+      z-index: 5;
+    }
+
+    /* ── No-data overlay ── */
+    #no-data {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.6);
+      color: #9ca3af;
+      font-size: 1rem;
+      z-index: 10;
+    }
+
+    /* ── Responsive: sin media queries fijas, el JS maneja la escala ── */
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>🅿 Estacionamiento — Mapa en Tiempo Real</h1>
+    <div id="stats-bar">
+      <span class="stat-badge free">— LIBRES</span>
+      <span class="stat-badge occupied">— OCUPADOS</span>
+      <span class="stat-badge neutral">— TOTAL</span>
+      <span title="Estado de conexión">
+        <span id="conn-dot" class="connecting"></span>
+        <span id="conn-label" style="font-size:0.75rem;margin-left:4px;color:#9ca3af;">conectando…</span>
+      </span>
+    </div>
+  </header>
+
+  <div id="parking-wrapper">
+    <div id="lot-scale-wrapper">
       <div id="parking-lot">
         <button id="map-mode-btn" title="Cambiar modo de mapa">
-          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2.5"
-               stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/>
-            <line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/>
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21" />
+            <line x1="9" y1="3" x2="9" y2="18" />
+            <line x1="15" y1="6" x2="15" y2="21" />
           </svg>
           <span id="map-mode-label">CLÁSICO</span>
         </button>
@@ -171,211 +286,189 @@
         <div id="no-data">Esperando datos del detector…</div>
       </div>
     </div>
+  </div>
 
-    <script>
-      // ── Dimensiones del contenedor/máscara ──
-      const MASK_WIDTH  = 450;
-      const MASK_HEIGHT = 600;
+  <script>
+    const PAD = 16; // padding interno del contenedor
+    const occupiedIconURL = "/Media/car.png";
 
-      const occupiedIconURL = "/Media/car.png";
+    const lot = document.getElementById("parking-lot");
+    const scaleWrapper = document.getElementById("lot-scale-wrapper");
+    const linesLayer = document.getElementById("lot-lines");
+    const noData = document.getElementById("no-data");
+    const connDot = document.getElementById("conn-dot");
+    const connLabel = document.getElementById("conn-label");
+    const [badgeFree, badgeOcc, badgeTotal] = document.querySelectorAll(".stat-badge");
 
-      const lot        = document.getElementById("parking-lot");
-      const linesLayer = document.getElementById("lot-lines");
-      const noData     = document.getElementById("no-data");
-      const connDot    = document.getElementById("conn-dot");
-      const connLabel  = document.getElementById("conn-label");
-      const [badgeFree, badgeOcc, badgeTotal] = document.querySelectorAll(".stat-badge");
+    // ── Escala responsive (se llama tras dimensionar el lot) ──
+    function applyScale() {
+      const lotW = lot.offsetWidth || 1;
+      const maxW = document.getElementById("parking-wrapper").clientWidth - 24;
+      const scale = Math.min(1, maxW / lotW);
+      scaleWrapper.style.transform = `scale(${scale})`;
+      scaleWrapper.style.width  = (lotW * scale) + "px";
+      scaleWrapper.style.height = (lot.offsetHeight * scale) + "px";
+    }
 
-      lot.style.width  = MASK_WIDTH  + "px";
-      lot.style.height = MASK_HEIGHT + "px";
+    window.addEventListener("resize", applyScale);
 
-      // ── Utilidades (preservadas del original) ──
-      const EPS = 8;
-      const roundPx = v => Math.round(v);
+    const roundPx = v => Math.round(v);
 
-      function dedupeSorted(values, eps = EPS) {
-        if (!values.length) return [];
-        values.sort((a, b) => a - b);
-        const out = [values[0]];
-        for (let i = 1; i < values.length; i++) {
-          if (Math.abs(values[i] - out[out.length - 1]) > eps) out.push(values[i]);
-        }
-        return out;
-      }
+    let offsetX = 0, offsetY = 0;
 
-      function clusterRows(spaces) {
-        const rows = [];
-        const sorted = [...spaces].sort((a, b) => a.y + a.h / 2 - (b.y + b.h / 2));
-        for (const s of sorted) {
-          const cY = s.y + s.h / 2;
-          let row = rows.find(r => Math.abs(r.cy - cY) < Math.max(EPS, s.h * 0.5));
-          if (!row) { row = { cy: cY, items: [] }; rows.push(row); }
-          row.items.push(s);
-          row.cy = row.items.reduce((acc, it) => acc + it.y + it.h / 2, 0) / row.items.length;
-        }
-        return rows;
-      }
+    // Ajusta el contenedor al bounding box del contenido y calcula offsets con padding
+    function computeOffsets(spaces) {
+      const minX = Math.min(...spaces.map(s => s.x));
+      const maxX = Math.max(...spaces.map(s => s.x + s.w));
+      const minY = Math.min(...spaces.map(s => s.y));
+      const maxY = Math.max(...spaces.map(s => s.y + s.h));
+      const contentW = maxX - minX;
+      const contentH = maxY - minY;
+      // Los spots se posicionan desde (PAD, PAD)
+      offsetX = roundPx(PAD - minX);
+      offsetY = roundPx(PAD - minY);
+      // Redimensionar el contenedor al contenido + padding
+      lot.style.width  = (contentW + PAD * 2) + "px";
+      lot.style.height = (contentH + PAD * 2) + "px";
+      applyScale();
+      return { minX, maxX, minY, maxY };
+    }
 
-      let offsetX = 0, offsetY = 0;
-
-      function computeOffsets(spaces) {
-        const minX = Math.min(...spaces.map(s => s.x));
-        const maxX = Math.max(...spaces.map(s => s.x + s.w));
-        const minY = Math.min(...spaces.map(s => s.y));
-        const maxY = Math.max(...spaces.map(s => s.y + s.h));
-        const contentW = maxX - minX;
-        const contentH = maxY - minY;
-        offsetX = roundPx((MASK_WIDTH  - contentW) / 2 - minX);
-        offsetY = roundPx((MASK_HEIGHT - contentH) / 2 - minY);
-        return { minX, maxX, minY, maxY };
-      }
-
-      function drawSharedLines(spaces) {
-        linesLayer.innerHTML = "";
-        if (!spaces?.length) return;
-        const { minX, maxX, minY, maxY } = computeOffsets(spaces);
-
-        const boundariesY = [];
-        spaces.forEach(s => { boundariesY.push(s.y); boundariesY.push(s.y + s.h); });
-        let uniqY = dedupeSorted(boundariesY).filter(y => y > minY + EPS && y < maxY - EPS);
-        uniqY.forEach(y => {
-          const line = document.createElement("div");
-          line.className = "lot-line h";
-          line.style.left  = roundPx(minX + offsetX) + "px";
-          line.style.top   = roundPx(y    + offsetY) + "px";
-          line.style.width = roundPx((maxX - minX)) + "px";
-          linesLayer.appendChild(line);
-        });
-
-        const rows = clusterRows(spaces);
-        const mids = [];
-        for (const r of rows) {
-          const rowItems = r.items.slice().sort((a, b) => a.x - b.x);
-          if (rowItems.length < 2) continue;
-          const leftColRightEdge = Math.max(...rowItems.slice(0, Math.ceil(rowItems.length / 2)).map(s => s.x + s.w));
-          const rightColLeftEdge = Math.min(...rowItems.slice(Math.floor(rowItems.length / 2)).map(s => s.x));
-          mids.push((leftColRightEdge + rightColLeftEdge) / 2);
-        }
-        if (mids.length) {
-          mids.sort((a, b) => a - b);
-          const midX = roundPx(mids[Math.floor(mids.length / 2)]);
-          const rear = document.createElement("div");
-          rear.className = "lot-line v";
-          rear.style.left   = roundPx(midX + offsetX) + "px";
-          rear.style.top    = roundPx(minY + offsetY) + "px";
-          rear.style.height = roundPx((maxY - minY)) + "px";
-          linesLayer.appendChild(rear);
-        }
-      }
-
-      function buildSpot(space) {
-        const spot = document.createElement("div");
-        spot.className = "spot " + (space.empty ? "empty" : "occupied");
-        spot.style.left   = (space.x + offsetX) + "px";
-        spot.style.top    = (space.y + offsetY) + "px";
-        spot.style.width  = space.w + "px";
-        spot.style.height = space.h + "px";
-
-        if (!space.empty) {
-          const img = document.createElement("img");
-          img.className = "car-icon";
-          img.src = occupiedIconURL;
-          img.alt = "Auto";
-          const centerDisplayX = space.x + offsetX + space.w / 2;
-          const isLeftSide = centerDisplayX < MASK_WIDTH / 2;
-          let baseRotation = isLeftSide ? -90 : 90;
-          if (typeof space.angle === "number") baseRotation += space.angle;
-          const TARGET = 200;
-          const scale = Math.min(space.w / TARGET, space.h / TARGET, 1);
-          img.style.transform = `translate(-50%, -50%) rotate(${baseRotation}deg) scale(${scale})`;
-          spot.appendChild(img);
-        }
-
-        // Solo mostrar número en spots ocupados
-        if (!space.empty) {
-          const label = document.createElement("div");
-          label.className = "label";
-          label.textContent = space.id;
-          spot.appendChild(label);
-        }
-        return spot;
-      }
-
-      function renderState(data) {
-        const spots  = data.spots || data;  // support both SSE payload and /state
-        const free   = data.free   ?? spots.filter(s => s.empty).length;
-        const total  = data.total  ?? spots.length;
-        const occPct = total > 0 ? Math.round((total - free) / total * 100) : 0;
-
-        noData.style.display = spots.length ? "none" : "flex";
-
-        drawSharedLines(spots);
-        lot.querySelectorAll(".spot").forEach(n => n.remove());
-        spots.forEach(space => lot.appendChild(buildSpot(space)));
-
-        // Update badges
-        badgeFree.textContent  = `${free} LIBRES`;
-        badgeOcc.textContent   = `${total - free} OCUPADOS`;
-        badgeTotal.textContent = `${total} TOTAL`;
-
-        // Color class
-        badgeFree.className = "stat-badge " + (occPct < 30 ? "free" : occPct < 70 ? "neutral" : "occupied");
-      }
-
-      // ── SSE connection ──
-      let evtSource = null;
-      let reconnectTimer = null;
-
-      function connect() {
-        if (evtSource) { evtSource.close(); }
-        connDot.className   = "connecting";
-        connLabel.textContent = "conectando…";
-
-        evtSource = new EventSource("/api/public/parking/stream");
-
-        evtSource.onopen = () => {
-          connDot.className   = "connected";
-          connLabel.textContent = "en vivo";
-        };
-
-        evtSource.onmessage = (e) => {
-          try {
-            const data = JSON.parse(e.data);
-            renderState(data);
-          } catch (_) {}
-        };
-
-        evtSource.onerror = () => {
-          connDot.className   = "error";
-          connLabel.textContent = "reconectando…";
-          evtSource.close();
-          clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(connect, 3000);
-        };
-      }
-
-      connect();
-
-      // ── Map mode toggle ──────────────────────────────────────────────────────
-      const SESSION_KEY = 'parkingMapMode';
-      const modeBtn     = document.getElementById('map-mode-btn');
-      const modeLabel   = document.getElementById('map-mode-label');
-
-      function applyMode(mode) {
-        const isCustom = mode === 'custom';
-        lot.classList.toggle('mode-custom', isCustom);
-        modeBtn.classList.toggle('mode-custom', isCustom);
-        modeLabel.textContent = isCustom ? 'IMAGEN' : 'CLÁSICO';
-      }
-
-      // Restore persisted mode
-      applyMode(sessionStorage.getItem(SESSION_KEY) ?? 'original');
-
-      modeBtn.addEventListener('click', () => {
-        const next = lot.classList.contains('mode-custom') ? 'original' : 'custom';
-        sessionStorage.setItem(SESSION_KEY, next);
-        applyMode(next);
+    function drawOutlines(spaces) {
+      linesLayer.innerHTML = "";
+      if (!spaces?.length) return;
+      spaces.forEach(s => {
+        const el = document.createElement("div");
+        el.className = "spot-outline";
+        el.style.left   = (s.x + offsetX) + "px";
+        el.style.top    = (s.y + offsetY) + "px";
+        el.style.width  = s.w + "px";
+        el.style.height = s.h + "px";
+        linesLayer.appendChild(el);
       });
-    </script>
-  </body>
+    }
+
+    function buildSpot(space) {
+      const spot = document.createElement("div");
+      spot.className = "spot " + (space.empty ? "empty" : "occupied");
+      spot.style.left = (space.x + offsetX) + "px";
+      spot.style.top = (space.y + offsetY) + "px";
+      spot.style.width = space.w + "px";
+      spot.style.height = space.h + "px";
+
+      if (!space.empty) {
+        const img = document.createElement("img");
+        img.className = "car-icon";
+        img.src = occupiedIconURL;
+        img.alt = "Auto";
+
+        // car.png tiene el auto con nariz hacia arriba (0° = vertical).
+        // portrait (h > w): 0°/180° → auto vertical
+        // landscape (w >= h): -90°/90° → auto horizontal
+        const isPortrait = space.h > space.w;
+        let baseRotation;
+        if (isPortrait) {
+          const centerDisplayY = space.y + offsetY + space.h / 2;
+          const contentH = lot.offsetHeight - PAD * 2;
+          baseRotation = centerDisplayY < (PAD + contentH / 2) ? 180 : 0;
+        } else {
+          const centerDisplayX = space.x + offsetX + space.w / 2;
+          const contentW = lot.offsetWidth - PAD * 2;
+          baseRotation = centerDisplayX < (PAD + contentW / 2) ? -90 : 90;
+        }
+        if (typeof space.angle === "number") baseRotation += space.angle;
+
+        const scale = Math.min(space.w / 200, space.h / 200, 1);
+        img.style.transform = `translate(-50%, -50%) rotate(${baseRotation}deg) scale(${scale})`;
+        spot.appendChild(img);
+      }
+
+      // Solo mostrar número en spots ocupados
+      if (!space.empty) {
+        const label = document.createElement("div");
+        label.className = "label";
+        label.textContent = space.id;
+        spot.appendChild(label);
+      }
+      return spot;
+    }
+
+    function renderState(data) {
+      const spots = data.spots || data;  // support both SSE payload and /state
+      const free = data.free ?? spots.filter(s => s.empty).length;
+      const total = data.total ?? spots.length;
+      const occPct = total > 0 ? Math.round((total - free) / total * 100) : 0;
+
+      noData.style.display = spots.length ? "none" : "flex";
+
+      drawOutlines(spots);
+      lot.querySelectorAll(".spot").forEach(n => n.remove());
+      spots.forEach(space => lot.appendChild(buildSpot(space)));
+
+      // Update badges
+      badgeFree.textContent = `${free} LIBRES`;
+      badgeOcc.textContent = `${total - free} OCUPADOS`;
+      badgeTotal.textContent = `${total} TOTAL`;
+
+      // Color class
+      badgeFree.className = "stat-badge " + (occPct < 30 ? "free" : occPct < 70 ? "neutral" : "occupied");
+    }
+
+    // ── SSE connection ──
+    let evtSource = null;
+    let reconnectTimer = null;
+
+    function connect() {
+      if (evtSource) { evtSource.close(); }
+      connDot.className = "connecting";
+      connLabel.textContent = "conectando…";
+
+      evtSource = new EventSource("/api/public/parking/stream");
+
+      evtSource.onopen = () => {
+        connDot.className = "connected";
+        connLabel.textContent = "en vivo";
+      };
+
+      evtSource.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          renderState(data);
+        } catch (_) { }
+      };
+
+      evtSource.onerror = () => {
+        connDot.className = "error";
+        connLabel.textContent = "reconectando…";
+        evtSource.close();
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
+
+    // ── Map mode toggle ──────────────────────────────────────────────────────
+    const SESSION_KEY = 'parkingMapMode';
+    const modeBtn = document.getElementById('map-mode-btn');
+    const modeLabel = document.getElementById('map-mode-label');
+
+    function applyMode(mode) {
+      const isCustom = mode === 'custom';
+      lot.classList.toggle('mode-custom', isCustom);
+      modeBtn.classList.toggle('mode-custom', isCustom);
+      modeLabel.textContent = isCustom ? 'IMAGEN' : 'CLÁSICO';
+    }
+
+    // Restore persisted mode
+    applyMode(sessionStorage.getItem(SESSION_KEY) ?? 'original');
+
+    modeBtn.addEventListener('click', () => {
+      const next = lot.classList.contains('mode-custom') ? 'original' : 'custom';
+      sessionStorage.setItem(SESSION_KEY, next);
+      applyMode(next);
+    });
+  </script>
+</body>
+
 </html>

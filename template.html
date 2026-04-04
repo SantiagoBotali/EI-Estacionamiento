@@ -1,264 +1,281 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Parking en Tiempo Real</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        background: #1f1f1f;
-        margin: 0;
+
+<head>
+  <meta charset="utf-8" />
+  <title>Parking en Tiempo Real</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #1f1f1f;
+      margin: 0;
+    }
+
+    h2 {
+      color: #fff;
+      text-align: center;
+      margin: 16px 0 8px;
+      font-weight: 600;
+    }
+
+    #parking-lot {
+      position: relative;
+      background: #222;
+      margin: 12px auto 28px auto;
+      border-radius: 12px;
+      box-shadow: 2px 2px 12px #0008;
+      overflow: hidden;
+    }
+
+    /* Capa de líneas (sobre spots vacíos, bajo autos) */
+    #lot-lines {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .lot-line {
+      position: absolute;
+      background: rgba(255, 255, 255, 0.96);
+      border-radius: 2px;
+    }
+
+    .lot-line.v {
+      width: 3px;
+    }
+
+    .lot-line.h {
+      height: 3px;
+    }
+
+    /* Spot (debajo de las líneas) */
+    .spot {
+      position: absolute;
+      box-sizing: border-box;
+      color: #fff;
+      font-weight: 700;
+      border: none;
+      z-index: 1;
+    }
+
+    .spot.empty {
+      background: rgba(46, 204, 113, 0.40);
+      padding: 4px;
+      /* marco para ver líneas compartidas */
+      background-clip: content-box;
+    }
+
+    .spot.occupied {
+      background: transparent;
+      padding: 0;
+    }
+
+    /* PNG del auto (encima de las líneas) */
+    .car-icon {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 330px;
+      height: 330px;
+      object-fit: contain;
+      pointer-events: none;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+      transform-origin: 50% 50%;
+      z-index: 4;
+    }
+
+    /* Etiqueta */
+    .label {
+      position: absolute;
+      left: 4px;
+      bottom: 4px;
+      font-size: 12px;
+      line-height: 1;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 2px 6px;
+      border-radius: 4px;
+      pointer-events: none;
+      color: #fff;
+      z-index: 5;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Mapa de Estacionamiento (Tiempo Real)</h2>
+  <div id="parking-lot">
+    <div id="lot-lines"></div>
+  </div>
+
+  <script>
+    // Dimensiones del contenedor/máscara
+    const MASK_WIDTH = 1920;
+    const MASK_HEIGHT = 1080;
+
+    // PNG del auto
+    const occupiedIconURL = "Media/car.png";
+
+    const lot = document.getElementById("parking-lot");
+    const linesLayer = document.getElementById("lot-lines");
+    lot.style.width = MASK_WIDTH + "px";
+    lot.style.height = MASK_HEIGHT + "px";
+
+    // -------- utilidades --------
+    const EPS = 8;
+    const roundPx = (v) => Math.round(v);
+
+    function dedupeSorted(values, eps = EPS) {
+      if (!values.length) return [];
+      values.sort((a, b) => a - b);
+      const out = [values[0]];
+      for (let i = 1; i < values.length; i++) {
+        if (Math.abs(values[i] - out[out.length - 1]) > eps) out.push(values[i]);
       }
-      h2 {
-        color: #fff;
-        text-align: center;
-        margin: 16px 0 8px;
-        font-weight: 600;
-      }
+      return out;
+    }
 
-      #parking-lot {
-        position: relative;
-        background: #222;
-        margin: 12px auto 28px auto;
-        border-radius: 12px;
-        box-shadow: 2px 2px 12px #0008;
-        overflow: hidden;
-      }
-
-      /* Capa de líneas (sobre spots vacíos, bajo autos) */
-      #lot-lines {
-        position: absolute;
-        inset: 0;
-        z-index: 3;
-        pointer-events: none;
-      }
-      .lot-line {
-        position: absolute;
-        background: rgba(255, 255, 255, 0.96);
-        border-radius: 2px;
-      }
-      .lot-line.v { width: 3px; }
-      .lot-line.h { height: 3px; }
-
-      /* Spot (debajo de las líneas) */
-      .spot {
-        position: absolute;
-        box-sizing: border-box;
-        color: #fff;
-        font-weight: 700;
-        border: none;
-        z-index: 1;
-      }
-      .spot.empty {
-        background: rgba(46, 204, 113, 0.40);
-        padding: 4px;                 /* marco para ver líneas compartidas */
-        background-clip: content-box;
-      }
-      .spot.occupied { background: transparent; padding: 0; }
-
-      /* PNG del auto (encima de las líneas) */
-      .car-icon {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        width: 330px;
-        height: 330px;
-        object-fit: contain;
-        pointer-events: none;
-        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
-        transform-origin: 50% 50%;
-        z-index: 4;
-      }
-
-      /* Etiqueta */
-      .label {
-        position: absolute;
-        left: 4px;
-        bottom: 4px;
-        font-size: 12px;
-        line-height: 1;
-        background: rgba(0, 0, 0, 0.35);
-        padding: 2px 6px;
-        border-radius: 4px;
-        pointer-events: none;
-        color: #fff;
-        z-index: 5;
-      }
-    </style>
-  </head>
-  <body>
-    <h2>Mapa de Estacionamiento (Tiempo Real)</h2>
-    <div id="parking-lot">
-      <div id="lot-lines"></div>
-    </div>
-
-    <script>
-      // Dimensiones del contenedor/máscara
-      const MASK_WIDTH = 450;
-      const MASK_HEIGHT = 600;
-
-      // PNG del auto
-      const occupiedIconURL = "Media/car.png";
-
-      const lot = document.getElementById("parking-lot");
-      const linesLayer = document.getElementById("lot-lines");
-      lot.style.width = MASK_WIDTH + "px";
-      lot.style.height = MASK_HEIGHT + "px";
-
-      // -------- utilidades --------
-      const EPS = 8;
-      const roundPx = (v) => Math.round(v);
-
-      function dedupeSorted(values, eps = EPS) {
-        if (!values.length) return [];
-        values.sort((a, b) => a - b);
-        const out = [values[0]];
-        for (let i = 1; i < values.length; i++) {
-          if (Math.abs(values[i] - out[out.length - 1]) > eps) out.push(values[i]);
+    function clusterRows(spaces) {
+      const rows = [];
+      const sorted = [...spaces].sort(
+        (a, b) => a.y + a.h / 2 - (b.y + b.h / 2)
+      );
+      for (const s of sorted) {
+        const cY = s.y + s.h / 2;
+        let row = rows.find(r => Math.abs(r.cy - cY) < Math.max(EPS, s.h * 0.5));
+        if (!row) {
+          row = { cy: cY, items: [] };
+          rows.push(row);
         }
-        return out;
+        row.items.push(s);
+        row.cy = row.items.reduce((acc, it) => acc + it.y + it.h / 2, 0) / row.items.length;
       }
+      return rows;
+    }
 
-      function clusterRows(spaces) {
-        const rows = [];
-        const sorted = [...spaces].sort(
-          (a, b) => a.y + a.h / 2 - (b.y + b.h / 2)
+    // Offsets globales para centrar
+    let offsetX = 0, offsetY = 0;
+
+    function computeOffsets(spaces) {
+      const minX = Math.min(...spaces.map(s => s.x));
+      const maxX = Math.max(...spaces.map(s => s.x + s.w));
+      const minY = Math.min(...spaces.map(s => s.y));
+      const maxY = Math.max(...spaces.map(s => s.y + s.h));
+      const contentW = maxX - minX;
+      const contentH = maxY - minY;
+      offsetX = roundPx((MASK_WIDTH - contentW) / 2 - minX);
+      offsetY = roundPx((MASK_HEIGHT - contentH) / 2 - minY);
+      return { minX, maxX, minY, maxY, contentW, contentH };
+    }
+
+    // -------- líneas compartidas + línea central --------
+    function drawSharedLines(spaces) {
+      linesLayer.innerHTML = "";
+      if (!spaces?.length) return;
+
+      const { minX, maxX, minY, maxY } = computeOffsets(spaces);
+
+      // (A) Separadores de filas (horizontales) – solo internos
+      const boundariesY = [];
+      spaces.forEach(s => {
+        boundariesY.push(s.y);
+        boundariesY.push(s.y + s.h);
+      });
+      let uniqY = dedupeSorted(boundariesY)
+        .filter(y => y > minY + EPS && y < maxY - EPS);
+
+      uniqY.forEach(y => {
+        const line = document.createElement("div");
+        line.className = "lot-line h";
+        line.style.left = roundPx(minX + offsetX) + "px";
+        line.style.top = roundPx(y + offsetY) + "px";
+        line.style.width = roundPx((maxX - minX)) + "px";
+        linesLayer.appendChild(line);
+      });
+
+      // (B) Línea vertical central recta entre columnas
+      const rows = clusterRows(spaces);
+      const mids = [];
+      for (const r of rows) {
+        const rowItems = r.items.slice().sort((a, b) => a.x - b.x);
+        if (rowItems.length < 2) continue;
+        const leftColRightEdge = Math.max(
+          ...rowItems.slice(0, Math.ceil(rowItems.length / 2)).map(s => s.x + s.w)
         );
-        for (const s of sorted) {
-          const cY = s.y + s.h / 2;
-          let row = rows.find(r => Math.abs(r.cy - cY) < Math.max(EPS, s.h * 0.5));
-          if (!row) {
-            row = { cy: cY, items: [] };
-            rows.push(row);
-          }
-          row.items.push(s);
-          row.cy = row.items.reduce((acc, it) => acc + it.y + it.h / 2, 0) / row.items.length;
-        }
-        return rows;
+        const rightColLeftEdge = Math.min(
+          ...rowItems.slice(Math.floor(rowItems.length / 2)).map(s => s.x)
+        );
+        mids.push((leftColRightEdge + rightColLeftEdge) / 2);
+      }
+      if (mids.length) {
+        mids.sort((a, b) => a - b);
+        const midX = roundPx(mids[Math.floor(mids.length / 2)]);
+        const rear = document.createElement("div");
+        rear.className = "lot-line v";
+        rear.style.left = roundPx(midX + offsetX) + "px";
+        rear.style.top = roundPx(minY + offsetY) + "px";
+        rear.style.height = roundPx((maxY - minY)) + "px";
+        linesLayer.appendChild(rear);
+      }
+    }
+
+    // -------- spots / autos --------
+    function buildSpot(space) {
+      const spot = document.createElement("div");
+      spot.className = "spot " + (space.empty ? "empty" : "occupied");
+      spot.style.left = (space.x + offsetX) + "px";
+      spot.style.top = (space.y + offsetY) + "px";
+      spot.style.width = space.w + "px";
+      spot.style.height = space.h + "px";
+
+      if (!space.empty) {
+        const img = document.createElement("img");
+        img.className = "car-icon";
+        img.src = occupiedIconURL;
+        img.alt = "Auto";
+
+        // Determinar lado usando coordenadas desplazadas (centradas)
+        const centerDisplayX = space.x + offsetX + space.w / 2;
+        const isLeftSide = centerDisplayX < MASK_WIDTH / 2;
+
+        let baseRotation = isLeftSide ? -90 : 90;
+        if (typeof space.angle === "number") baseRotation += space.angle;
+
+        const TARGET = 200;
+        const scale = Math.min(space.w / TARGET, space.h / TARGET, 1);
+        img.style.transform = `translate(-50%, -50%) rotate(${baseRotation}deg) scale(${scale})`;
+        spot.appendChild(img);
       }
 
-      // Offsets globales para centrar
-      let offsetX = 0, offsetY = 0;
+      const label = document.createElement("div");
+      label.className = "label";
+      label.textContent = space.id;
+      spot.appendChild(label);
 
-      function computeOffsets(spaces) {
-        const minX = Math.min(...spaces.map(s => s.x));
-        const maxX = Math.max(...spaces.map(s => s.x + s.w));
-        const minY = Math.min(...spaces.map(s => s.y));
-        const maxY = Math.max(...spaces.map(s => s.y + s.h));
-        const contentW = maxX - minX;
-        const contentH = maxY - minY;
-        offsetX = roundPx((MASK_WIDTH  - contentW) / 2 - minX);
-        offsetY = roundPx((MASK_HEIGHT - contentH) / 2 - minY);
-        return { minX, maxX, minY, maxY, contentW, contentH };
+      return spot;
+    }
+
+    // -------- loop --------
+    async function updateParking() {
+      try {
+        const res = await fetch("http://localhost:5000/parking_status");
+        const data = await res.json();
+
+        // Primero líneas (con offsets calculados)
+        drawSharedLines(data);
+
+        // Luego spots
+        lot.querySelectorAll(".spot").forEach(n => n.remove());
+        data.forEach(space => lot.appendChild(buildSpot(space)));
+      } catch (err) {
+        lot.innerHTML =
+          '<b style="color:#fff;display:block;text-align:center;margin-top:12px;">No se pudo conectar al servidor Flask</b>';
       }
+    }
 
-      // -------- líneas compartidas + línea central --------
-      function drawSharedLines(spaces) {
-        linesLayer.innerHTML = "";
-        if (!spaces?.length) return;
+    setInterval(updateParking, 1000);
+    updateParking();
+  </script>
+</body>
 
-        const { minX, maxX, minY, maxY } = computeOffsets(spaces);
-
-        // (A) Separadores de filas (horizontales) – solo internos
-        const boundariesY = [];
-        spaces.forEach(s => {
-          boundariesY.push(s.y);
-          boundariesY.push(s.y + s.h);
-        });
-        let uniqY = dedupeSorted(boundariesY)
-          .filter(y => y > minY + EPS && y < maxY - EPS);
-
-        uniqY.forEach(y => {
-          const line = document.createElement("div");
-          line.className = "lot-line h";
-          line.style.left  = roundPx(minX + offsetX) + "px";
-          line.style.top   = roundPx(y    + offsetY) + "px";
-          line.style.width = roundPx((maxX - minX)) + "px";
-          linesLayer.appendChild(line);
-        });
-
-        // (B) Línea vertical central recta entre columnas
-        const rows = clusterRows(spaces);
-        const mids = [];
-        for (const r of rows) {
-          const rowItems = r.items.slice().sort((a, b) => a.x - b.x);
-          if (rowItems.length < 2) continue;
-          const leftColRightEdge = Math.max(
-            ...rowItems.slice(0, Math.ceil(rowItems.length / 2)).map(s => s.x + s.w)
-          );
-          const rightColLeftEdge = Math.min(
-            ...rowItems.slice(Math.floor(rowItems.length / 2)).map(s => s.x)
-          );
-          mids.push((leftColRightEdge + rightColLeftEdge) / 2);
-        }
-        if (mids.length) {
-          mids.sort((a, b) => a - b);
-          const midX = roundPx(mids[Math.floor(mids.length / 2)]);
-          const rear = document.createElement("div");
-          rear.className = "lot-line v";
-          rear.style.left   = roundPx(midX + offsetX) + "px";
-          rear.style.top    = roundPx(minY + offsetY) + "px";
-          rear.style.height = roundPx((maxY - minY)) + "px";
-          linesLayer.appendChild(rear);
-        }
-      }
-
-      // -------- spots / autos --------
-      function buildSpot(space) {
-        const spot = document.createElement("div");
-        spot.className = "spot " + (space.empty ? "empty" : "occupied");
-        spot.style.left = (space.x + offsetX) + "px";
-        spot.style.top  = (space.y + offsetY) + "px";
-        spot.style.width  = space.w + "px";
-        spot.style.height = space.h + "px";
-
-        if (!space.empty) {
-          const img = document.createElement("img");
-          img.className = "car-icon";
-          img.src = occupiedIconURL;
-          img.alt = "Auto";
-
-          // Determinar lado usando coordenadas desplazadas (centradas)
-          const centerDisplayX = space.x + offsetX + space.w / 2;
-          const isLeftSide = centerDisplayX < MASK_WIDTH / 2;
-
-          let baseRotation = isLeftSide ? -90 : 90;
-          if (typeof space.angle === "number") baseRotation += space.angle;
-
-          const TARGET = 200;
-          const scale = Math.min(space.w / TARGET, space.h / TARGET, 1);
-          img.style.transform = `translate(-50%, -50%) rotate(${baseRotation}deg) scale(${scale})`;
-          spot.appendChild(img);
-        }
-
-        const label = document.createElement("div");
-        label.className = "label";
-        label.textContent = space.id;
-        spot.appendChild(label);
-
-        return spot;
-      }
-
-      // -------- loop --------
-      async function updateParking() {
-        try {
-          const res = await fetch("http://localhost:5000/parking_status");
-          const data = await res.json();
-
-          // Primero líneas (con offsets calculados)
-          drawSharedLines(data);
-
-          // Luego spots
-          lot.querySelectorAll(".spot").forEach(n => n.remove());
-          data.forEach(space => lot.appendChild(buildSpot(space)));
-        } catch (err) {
-          lot.innerHTML =
-            '<b style="color:#fff;display:block;text-align:center;margin-top:12px;">No se pudo conectar al servidor Flask</b>';
-        }
-      }
-
-      setInterval(updateParking, 1000);
-      updateParking();
-    </script>
-  </body>
 </html>

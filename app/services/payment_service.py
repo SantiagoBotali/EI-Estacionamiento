@@ -29,10 +29,14 @@ def simulate_payment(db: Session, stay_id: str, closed_by_id: int | None = None)
     if stay.status not in (StayStatus.ACTIVE, StayStatus.PAYMENT_PENDING):
         raise HTTPException(status_code=409, detail=f"Estadía en estado {stay.status}")
 
+    from app.database import get_setting
     from app.services.tariff import calculate_price
+    from app.services.stay_manager import _make_aware
 
+    rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
     now = datetime.now(timezone.utc)
-    amount = calculate_price(stay.entry_at, now)
+    amount = calculate_price(_make_aware(stay.entry_at), now, rate_per_hour=rate, minimum_charge=minimum)
 
     payment = Payment(
         stay_id=stay.id,

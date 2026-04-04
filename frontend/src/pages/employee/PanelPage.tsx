@@ -24,10 +24,10 @@ import {
 type Tab = 'map' | 'camera' | 'stays' | 'new'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
-  { id: 'map',    icon: <MapPin        className="w-5 h-5" />, label: 'Mapa en vivo' },
-  { id: 'camera', icon: <Camera        className="w-5 h-5" />, label: 'Cámara'       },
-  { id: 'stays',  icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías'     },
-  { id: 'new',    icon: <Plus          className="w-5 h-5" />, label: 'Nueva estadía' },
+  { id: 'map', icon: <MapPin className="w-5 h-5" />, label: 'Mapa en vivo' },
+  { id: 'camera', icon: <Camera className="w-5 h-5" />, label: 'Cámara' },
+  { id: 'stays', icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías' },
+  { id: 'new', icon: <Plus className="w-5 h-5" />, label: 'Nueva estadía' },
 ]
 
 export function EmployeePanelPage() {
@@ -76,11 +76,10 @@ export function EmployeePanelPage() {
               key={t.id}
               onClick={() => setActiveTab(t.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-                         transition-all duration-150 ${
-                           activeTab === t.id
-                             ? 'text-white bg-blue-600/25 border border-blue-500/30'
-                             : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/50'
-                         }`}
+                         transition-all duration-150 ${activeTab === t.id
+                  ? 'text-white bg-blue-600/25 border border-blue-500/30'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/50'
+                }`}
               title={t.label}
             >
               <span className="shrink-0">{t.icon}</span>
@@ -126,10 +125,10 @@ export function EmployeePanelPage() {
       {/* ── Main content ── */}
       <main className="flex-1 overflow-auto">
         <div className="p-5 lg:p-7 animate-fade-in">
-          {activeTab === 'map'    && <MapTab    toast={toast} />}
+          {activeTab === 'map' && <MapTab toast={toast} />}
           {activeTab === 'camera' && <CameraTab />}
-          {activeTab === 'stays'  && <StaysTab  toast={toast} />}
-          {activeTab === 'new'    && <NewTab    toast={toast} />}
+          {activeTab === 'stays' && <StaysTab toast={toast} />}
+          {activeTab === 'new' && <NewTab toast={toast} />}
         </div>
       </main>
     </div>
@@ -160,19 +159,19 @@ function MapTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     return () => clearInterval(id)
   }, [load])
 
-  const free     = state?.free ?? 0
-  const total    = state?.total ?? 0
+  const free = state?.free ?? 0
+  const total = state?.total ?? 0
   const occupied = total - free
-  const pct      = total ? Math.round(((total - free) / total) * 100) : 0
+  const pct = total ? Math.round(((total - free) / total) * 100) : 0
 
   return (
     <div className="space-y-5">
       <SectionHeader icon={<MapPin className="w-5 h-5" />} title="Mapa en vivo" />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiMini label="Libres"    value={free}     color="text-emerald-400" />
-        <KpiMini label="Ocupados"  value={occupied}  color="text-red-400"     />
-        <KpiMini label="Total"     value={total}     color="text-slate-200"   />
+        <KpiMini label="Libres" value={free} color="text-emerald-400" />
+        <KpiMini label="Ocupados" value={occupied} color="text-red-400" />
+        <KpiMini label="Total" value={total} color="text-slate-200" />
         <KpiMini label="Ocupación" value={`${pct}%`} color={pct < 50 ? 'text-emerald-400' : pct < 80 ? 'text-amber-400' : 'text-red-400'} />
       </div>
 
@@ -209,7 +208,12 @@ function CameraTab() {
 function computeLiveAmount(entryAtStr: string, tariff: TariffInfo | null): number {
   if (!tariff) return 0
   try {
-    const entryMs = new Date(entryAtStr).getTime()
+    // entry_at is stored as naive ARS time; append the ARS offset so JS treats it correctly
+    // regardless of the browser's local timezone.
+    const arsStr = entryAtStr.includes('+') || entryAtStr.endsWith('Z') || entryAtStr.includes('-0')
+      ? entryAtStr
+      : entryAtStr + '-03:00'
+    const entryMs = new Date(arsStr).getTime()
     if (isNaN(entryMs)) return 0
     const durationMin = Math.max(0, (Date.now() - entryMs) / 60_000)
     if (durationMin <= tariff.grace_period_minutes) return 0
@@ -234,7 +238,7 @@ function computeLiveAmount(entryAtStr: string, tariff: TariffInfo | null): numbe
 ───────────────────────────────────────────────────────────── */
 function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   // ── Active stays ─────────────────────────────────────────
-  const [stays, setStays]           = useState<ActiveStay[]>([])
+  const [stays, setStays] = useState<ActiveStay[]>([])
   const [staysLoading, setStaysLoading] = useState(true)
 
   const loadStays = useCallback(async () => {
@@ -283,9 +287,9 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }, [])
 
   // ── Lookup / search ──────────────────────────────────────
-  const [query, setQuery]             = useState('')
+  const [query, setQuery] = useState('')
   const [searchLoading, setSearchLoading] = useState(false)
-  const [lookupResult, setLookupResult]   = useState<StayLookupResponse | null>(null)
+  const [lookupResult, setLookupResult] = useState<StayLookupResponse | null>(null)
 
   const handleSearch = async () => {
     if (!query.trim()) return
@@ -307,7 +311,7 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   // ── Shared payment handlers ──────────────────────────────
   const [cashModal, setCashModal] = useState<{ stayId: string; amount: number } | null>(null)
-  const [paying, setPaying]       = useState(false)
+  const [paying, setPaying] = useState(false)
 
   const handleCash = async () => {
     if (!cashModal) return
@@ -371,7 +375,7 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         <button onClick={handleSearch} disabled={searchLoading} className="btn-primary shrink-0">
           {searchLoading
             ? <Loader2 className="w-4 h-4 animate-spin" />
-            : <Search   className="w-4 h-4" />}
+            : <Search className="w-4 h-4" />}
           Buscar
         </button>
       </div>
@@ -408,26 +412,32 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           </div>
 
           {(lookupResult.stay.status === 'ACTIVE' || lookupResult.stay.status === 'PAYMENT_PENDING') && (
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => openCashModal(lookupResult.stay.id, lookupResult.amount_expected)}
-                className="btn-success"
-                disabled={paying}
-              >
-                <CreditCard className="w-4 h-4" />
-                Cobrar efectivo
-              </button>
-              <button
-                onClick={() => handleSimulate(lookupResult.stay.id)}
-                className="btn-primary"
-                disabled={paying}
-              >
-                {paying
-                  ? <Loader2  className="w-4 h-4 animate-spin" />
-                  : <Activity className="w-4 h-4" />}
-                Pago simulado
-              </button>
-            </div>
+            <>
+              <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl px-4 py-3">
+                <p className="text-slate-500 text-xs uppercase tracking-widest mb-1">Monto estimado</p>
+                <p className="text-2xl font-bold text-emerald-400 tabular-nums">{formatCurrency(lookupResult.amount_expected)}</p>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => openCashModal(lookupResult.stay.id, lookupResult.amount_expected)}
+                  className="btn-success"
+                  disabled={paying}
+                >
+                  <CreditCard className="w-4 h-4" />
+                  Cobrar efectivo
+                </button>
+                <button
+                  onClick={() => handleSimulate(lookupResult.stay.id)}
+                  className="btn-primary"
+                  disabled={paying}
+                >
+                  {paying
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Activity className="w-4 h-4" />}
+                  Pago simulado
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -488,40 +498,40 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                   {stays.map((s) => {
                     const liveAmount = computeLiveAmount(s.entry_at, tariff)
                     return (
-                    <tr key={s.id} className="table-row">
-                      <td className="td font-mono text-blue-400 font-semibold">
-                        {s.ticket?.ticket_code ?? '—'}
-                      </td>
-                      <td className="td text-slate-400">{formatDateTime(s.entry_at)}</td>
-                      <td className="td">
-                        <span className={getStatusBadge(s.status)}>
-                          {getStatusLabel(s.status)}
-                        </span>
-                      </td>
-                      <td className="td font-semibold text-emerald-400">
-                        {formatCurrency(liveAmount)}
-                      </td>
-                      <td className="td">
-                        <div className="flex gap-1.5">
-                          <button
-                            onClick={() => openCashModal(s.id, liveAmount)}
-                            className="btn-success py-1 px-2 text-xs"
-                            disabled={paying}
-                          >
-                            <CreditCard className="w-3.5 h-3.5" />
-                            Efectivo
-                          </button>
-                          <button
-                            onClick={() => handleSimulate(s.id)}
-                            className="btn-primary py-1 px-2 text-xs"
-                            disabled={paying}
-                          >
-                            <Activity className="w-3.5 h-3.5" />
-                            Simular
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                      <tr key={s.id} className="table-row">
+                        <td className="td font-mono text-blue-400 font-semibold">
+                          {s.ticket?.ticket_code ?? '—'}
+                        </td>
+                        <td className="td text-slate-400">{formatDateTime(s.entry_at)}</td>
+                        <td className="td">
+                          <span className={getStatusBadge(s.status)}>
+                            {getStatusLabel(s.status)}
+                          </span>
+                        </td>
+                        <td className="td font-semibold text-emerald-400">
+                          {formatCurrency(liveAmount)}
+                        </td>
+                        <td className="td">
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => openCashModal(s.id, liveAmount)}
+                              className="btn-success py-1 px-2 text-xs"
+                              disabled={paying}
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              Efectivo
+                            </button>
+                            <button
+                              onClick={() => handleSimulate(s.id)}
+                              className="btn-primary py-1 px-2 text-xs"
+                              disabled={paying}
+                            >
+                              <Activity className="w-3.5 h-3.5" />
+                              Simular
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
                     )
                   })}
                 </tbody>
@@ -534,13 +544,15 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
       {/* ── Cash modal (shared) ── */}
       {cashModal && (
         <Modal title="Cobro en efectivo" onClose={() => setCashModal(null)}>
-          <p className="text-slate-400 text-sm mb-1">Monto a cobrar</p>
-          <p className="text-3xl font-bold text-white mb-6">{formatCurrency(cashModal.amount)}</p>
+          <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl px-5 py-4 mb-5">
+            <p className="text-slate-500 text-xs uppercase tracking-widest mb-1">Monto</p>
+            <p className="text-4xl font-bold text-emerald-400 tabular-nums">{formatCurrency(cashModal.amount)}</p>
+          </div>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setCashModal(null)} className="btn-secondary">Cancelar</button>
             <button onClick={handleCash} disabled={paying} className="btn-success">
               {paying
-                ? <Loader2    className="w-4 h-4 animate-spin" />
+                ? <Loader2 className="w-4 h-4 animate-spin" />
                 : <CreditCard className="w-4 h-4" />}
               Cobrar
             </button>
@@ -555,9 +567,9 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
    Tab: Nueva estadía
 ───────────────────────────────────────────────────────────── */
 function NewTab({ toast }: { toast: ReturnType<typeof useToast> }) {
-  const [notes, setNotes]   = useState('')
+  const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult]   = useState<Awaited<ReturnType<typeof createStay>> | null>(null)
+  const [result, setResult] = useState<Awaited<ReturnType<typeof createStay>> | null>(null)
 
   const handleCreate = async () => {
     setLoading(true)
@@ -600,7 +612,7 @@ function NewTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         >
           {loading
             ? <><Loader2 className="w-4 h-4 animate-spin" /> Creando…</>
-            : <><Plus    className="w-4 h-4" /> Registrar ingreso</>}
+            : <><Plus className="w-4 h-4" /> Registrar ingreso</>}
         </button>
       </div>
 
@@ -611,11 +623,11 @@ function NewTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             <span className="font-semibold text-sm">Estadía creada exitosamente</span>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <InfoRow label="Código"  value={result.ticket.ticket_code} mono />
+            <InfoRow label="Código" value={result.ticket.ticket_code} mono />
             <InfoRow label="Ingreso" value={formatDateTime(result.stay.entry_at)} />
           </div>
           <div className="bg-white rounded-xl p-3 flex justify-center"
-               dangerouslySetInnerHTML={{ __html: result.barcode_svg }} />
+            dangerouslySetInnerHTML={{ __html: result.barcode_svg }} />
           <button
             onClick={() => printTicket(result.ticket.ticket_code, result.stay.entry_at, result.barcode_svg)}
             className="btn-secondary w-full justify-center"

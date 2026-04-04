@@ -322,5 +322,11 @@ async def update_tariff_settings(
             row.value = str(body.rate_per_hour)
         else:
             db.add(SystemSetting(key="rate_per_hour", value=str(body.rate_per_hour)))
-        db.commit()
+    if body.minimum_charge is not None:
+        row = db.get(SystemSetting, "minimum_charge")
+        if row:
+            row.value = str(body.minimum_charge)
+        else:
+            db.add(SystemSetting(key="minimum_charge", value=str(body.minimum_charge)))
+    db.commit()
     return {"ok": True}

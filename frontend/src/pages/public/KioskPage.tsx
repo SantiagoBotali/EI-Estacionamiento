@@ -78,26 +78,29 @@ export function KioskPage() {
           <p className="text-slate-400 text-lg mb-8">
             Toque el botón para registrar su ingreso
           </p>
-          {error && (
-            <div className="mb-6 bg-red-950/60 border border-red-700/50 text-red-300
-                            text-sm px-5 py-3 rounded-xl max-w-sm mx-auto">
-              {error}
-            </div>
-          )}
-          <button
-            onClick={handleEntry}
-            className="relative w-52 h-52 rounded-full bg-gradient-to-br from-blue-600 to-blue-800
-                       text-white flex flex-col items-center justify-center
-                       shadow-2xl shadow-blue-900/60 border-4 border-blue-500/30
-                       hover:from-blue-500 hover:to-blue-700 active:scale-95
-                       transition-all duration-200 focus:outline-none
-                       after:absolute after:inset-0 after:rounded-full
-                       after:border-4 after:border-blue-400/20
-                       after:animate-ping after:scale-110"
-          >
-            <Ticket className="w-16 h-16 mb-2" />
-            <span className="font-bold text-xl tracking-wide">INGRESAR</span>
-          </button>
+          <div className="relative inline-block">
+            <button
+              onClick={handleEntry}
+              className="relative w-52 h-52 rounded-full bg-gradient-to-br from-blue-600 to-blue-800
+                         text-white flex flex-col items-center justify-center
+                         shadow-2xl shadow-blue-900/60 border-4 border-blue-500/30
+                         hover:from-blue-500 hover:to-blue-700 active:scale-95
+                         transition-all duration-200 focus:outline-none
+                         after:absolute after:inset-0 after:rounded-full
+                         after:border-4 after:border-blue-400/20
+                         after:animate-ping after:scale-110"
+            >
+              <Ticket className="w-16 h-16 mb-2" />
+              <span className="font-bold text-xl tracking-wide">INGRESAR</span>
+            </button>
+            {error && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-72 max-w-[90vw]
+                              bg-red-950/90 border border-red-700/60 text-red-300
+                              text-sm px-5 py-3 rounded-xl shadow-xl text-center">
+                {error}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

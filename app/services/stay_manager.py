@@ -14,18 +14,41 @@ from app.services.ticketing import create_ticket_in_db
 
 logger = logging.getLogger(__name__)
 
-MAX_ACTIVE_STAYS = 14  # physical parking spots
+MAX_ACTIVE_STAYS = 14  # fallback if vision adapter not initialized
+
+# The server stores entry_at as naive ARS time (UTC-3) for correct browser display.
+# Use this helper to convert to a proper timezone-aware datetime before arithmetic.
+ARS = timezone(timedelta(hours=-3))
+
+
+def _make_aware(dt: datetime) -> datetime:
+    """Return a timezone-aware datetime, assuming naive timestamps are ARS (UTC-3)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=ARS)
+    return dt
+
+
+def _get_max_capacity() -> int:
+    """Return the total number of parking spots from the vision adapter, or the fallback constant."""
+    try:
+        from app.services.vision_adapter import VisionAdapter
+        state = VisionAdapter.get_instance().get_state()
+        total = state.get("total", 0)
+        return total if total > 0 else MAX_ACTIVE_STAYS
+    except Exception:
+        return MAX_ACTIVE_STAYS
 
 
 def _check_capacity(db: Session) -> None:
     """Raise 409 if the parking lot is already at full capacity."""
+    max_spots = _get_max_capacity()
     count = db.execute(
         select(Stay).where(Stay.status.in_([StayStatus.ACTIVE, StayStatus.PAYMENT_PENDING]))
     ).scalars().all()
-    if len(count) >= MAX_ACTIVE_STAYS:
+    if len(count) >= max_spots:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Estacionamiento lleno: ya hay {MAX_ACTIVE_STAYS} estadías activas.",
+            detail=f"Estacionamiento lleno: ya hay {len(count)} estadías activas.",
         )
 
 
@@ -98,7 +121,8 @@ def lookup_stay(db: Session, query: str) -> tuple[Stay, Ticket, float]:
 
     from app.database import get_setting
     rate = float(get_setting(db, "rate_per_hour", "1200.0"))
-    amount = calculate_price(stay.entry_at, rate_per_hour=rate)
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
+    amount = calculate_price(_make_aware(stay.entry_at), rate_per_hour=rate, minimum_charge=minimum)
     stay.amount_expected = amount
     db.commit()
     db.refresh(stay)
@@ -130,8 +154,9 @@ def close_cash(
     from app.models import Payment, PaymentMethod, PaymentStatus
 
     rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
     now = datetime.now(timezone.utc)
-    amount = calculate_price(stay.entry_at, now, rate_per_hour=rate)
+    amount = calculate_price(_make_aware(stay.entry_at), now, rate_per_hour=rate, minimum_charge=minimum)
 
     stay.exit_at = now
     stay.amount_paid = amount
@@ -179,8 +204,7 @@ def generate_today_active_stays(
         .all()
     )
     for stay in active:
-        entry = stay.entry_at if stay.entry_at.tzinfo else stay.entry_at.replace(tzinfo=timezone.utc)
-        amount = calculate_price(entry, now, rate_per_hour=rate)
+        amount = calculate_price(_make_aware(stay.entry_at), now, rate_per_hour=rate)
         stay.exit_at = now
         stay.status = StayStatus.CLOSED
         stay.amount_expected = amount
@@ -231,6 +255,7 @@ def get_active_stays(db: Session) -> list[Stay]:
     """Return all ACTIVE and PAYMENT_PENDING stays with amount_expected calculated."""
     from app.database import get_setting
     rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
     now = datetime.now(timezone.utc)
 
     stmt = (
@@ -241,5 +266,5 @@ def get_active_stays(db: Session) -> list[Stay]:
     )
     stays = db.execute(stmt).scalars().all()
     for stay in stays:
-        stay.amount_expected = calculate_price(stay.entry_at, now, rate_per_hour=rate)
+        stay.amount_expected = calculate_price(_make_aware(stay.entry_at), now, rate_per_hour=rate, minimum_charge=minimum)
     return stays
