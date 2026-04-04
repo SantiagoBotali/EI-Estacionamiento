@@ -539,7 +539,7 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         />
         <KpiCard
           icon={<TrendingUp className="w-5 h-5" />}
-          label={`Total ${GRAN_LABELS[granularity].toLowerCase()}`}
+          label="Total anual"
           value={formatCurrency(rollup?.total_revenue ?? 0)}
           color="amber"
         />
@@ -955,42 +955,6 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
               </ResponsiveContainer>
             </ChartCard>
           </div>
-
-          {/* Payment method breakdown */}
-          <ChartCard title="Distribución por método de pago (período)">
-            {pieData.length === 0 ? (
-              <div className="h-60 flex items-center justify-center text-slate-600 text-sm">
-                Sin datos de pagos en el período
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%" cy="50%"
-                    innerRadius={65} outerRadius={100}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {pieData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} stroke="transparent" />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: CHART_THEME.tooltip.bg,
-                      border: `1px solid ${CHART_THEME.tooltip.border}`,
-                      borderRadius: 8,
-                      color: '#f1f5f9',
-                    }}
-                    itemStyle={{ color: '#f1f5f9', fontWeight: 600 }}
-                    formatter={(v: number) => [formatCurrency(v)]}
-                  />
-                  <Legend formatter={(v) => <span style={{ color: '#94a3b8', fontSize: 12 }}>{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </ChartCard>
         </>
       )}
     </div>

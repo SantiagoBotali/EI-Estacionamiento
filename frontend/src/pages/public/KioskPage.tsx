@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Loader2, ParkingCircle, Ticket } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ArrowLeft, CheckCircle2, Loader2, Ticket } from 'lucide-react'
 import { createPublicEntry, type EntryResponse } from '../../api/parking'
 import { formatDateTime } from '../../lib/utils'
 
@@ -49,25 +50,19 @@ export function KioskPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950
                     flex flex-col items-center justify-center p-6">
 
-
-      {/* Brand */}
-      <div className="flex items-center gap-3 mb-12">
-        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl
-                        flex items-center justify-center shadow-xl shadow-blue-900/50">
-          <ParkingCircle className="w-7 h-7 text-white" />
-        </div>
-        <div>
-          <p className="font-bold text-white text-xl leading-none">Estacionamiento SDG+</p>
-          <p className="text-slate-500 text-sm">Sistema de entrada</p>
-        </div>
-      </div>
+      {/* Back link */}
+      <Link
+        to="/"
+        className="absolute top-6 left-6 flex items-center gap-2 text-slate-500
+                   hover:text-slate-300 text-sm transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Mapa público
+      </Link>
 
       {/* ── IDLE ── */}
       {phase === 'idle' && (
         <div className="text-center animate-fade-in">
-          <p className="text-slate-400 text-lg mb-8">
-            Toque el botón para registrar su ingreso
-          </p>
           <div className="relative inline-block">
             <button
               onClick={handleEntry}
