@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, Loader2, ParkingCircle, Ticket } from 'lucide-react'
+import { CheckCircle2, Loader2, ParkingCircle, Ticket } from 'lucide-react'
 import { createPublicEntry, type EntryResponse } from '../../api/parking'
 import { formatDateTime } from '../../lib/utils'
 
@@ -50,15 +49,6 @@ export function KioskPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950
                     flex flex-col items-center justify-center p-6">
 
-      {/* Back link */}
-      <Link
-        to="/"
-        className="absolute top-6 left-6 flex items-center gap-2 text-slate-500
-                   hover:text-slate-300 text-sm transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Mapa público
-      </Link>
 
       {/* Brand */}
       <div className="flex items-center gap-3 mb-12">

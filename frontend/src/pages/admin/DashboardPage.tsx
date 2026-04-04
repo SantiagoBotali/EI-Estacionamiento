@@ -451,12 +451,17 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 ───────────────────────────────────────────────────────────── */
 function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [kpi, setKpi] = useState<FinanceKPI | null>(null)
+  const [rollup, setRollup] = useState<RollupKPI | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [granularity, setGranularity] = useState<Granularity>('monthly')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (gran: Granularity) => {
+    setLoading(true)
     try {
-      setKpi(await getFinanceKPI())
+      const [k, r] = await Promise.all([getFinanceKPI(), getRollupKPI(gran)])
+      setKpi(k)
+      setRollup(r)
       setLastRefresh(new Date())
     } catch (e) {
       toast('error', (e as Error).message)
@@ -466,30 +471,54 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }, [toast])
 
   useEffect(() => {
-    load()
-    const id = setInterval(load, 30000)
+    load(granularity)
+    const id = setInterval(() => load(granularity), 30000)
     return () => clearInterval(id)
-  }, [load])
+  }, [load, granularity])
 
-  if (loading) return <LoadingScreen />
+  const switchGran = (g: Granularity) => setGranularity(g)
 
-  const pieData = (kpi?.por_metodo ?? []).map((m) => ({
+  const revenueData = fillPeriodGaps(rollup?.revenue_by_period ?? [], granularity)
+  const xInterval = granularity === 'daily' ? 4 : 0
+
+  const pieData = (rollup?.by_method ?? kpi?.por_metodo ?? []).map((m) => ({
     name: m.method === 'CASH' ? 'Efectivo' : m.method === 'SIMULATED' ? 'Simulado' : 'MercadoPago',
     value: m.amount,
     color: METHOD_COLORS[m.method] ?? '#64748b',
   }))
 
+  if (loading) return <LoadingScreen />
+
   return (
     <div className="space-y-6">
-      <AdminHeader
-        icon={<DollarSign className="w-5 h-5" />}
-        title="Finanzas"
-        lastRefresh={lastRefresh}
-        onRefresh={load}
-      />
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <AdminHeader
+            icon={<DollarSign className="w-5 h-5" />}
+            title="Finanzas"
+            lastRefresh={lastRefresh}
+            onRefresh={() => load(granularity)}
+          />
+        </div>
+        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
+          {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
+            <button
+              key={g}
+              onClick={() => switchGran(g)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+                granularity === g
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {GRAN_LABELS[g]}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           icon={<DollarSign className="w-5 h-5" />}
           label="Ingresos hoy"
@@ -508,19 +537,30 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           value={formatCurrency(kpi?.ticket_promedio ?? 0)}
           color="purple"
         />
+        <KpiCard
+          icon={<TrendingUp className="w-5 h-5" />}
+          label={`Total ${GRAN_LABELS[granularity].toLowerCase()}`}
+          value={formatCurrency(rollup?.total_revenue ?? 0)}
+          color="amber"
+        />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <ChartCard title="Ingresos por día (últimos 7 días)">
+        <ChartCard title={`Ingresos por período (${GRAN_LABELS[granularity].toLowerCase()})`}>
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={kpi?.ingresos_por_dia ?? []} barSize={20}>
+            <BarChart data={revenueData} barSize={granularity === 'yearly' ? 40 : 12}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
-              <XAxis dataKey="date" stroke={CHART_THEME.axis} tick={{ fill: CHART_THEME.text, fontSize: 11 }} />
+              <XAxis
+                dataKey="label"
+                stroke={CHART_THEME.axis}
+                tick={{ fill: CHART_THEME.text, fontSize: 11 }}
+                interval={xInterval}
+              />
               <YAxis
                 stroke={CHART_THEME.axis}
                 tick={{ fill: CHART_THEME.text, fontSize: 11 }}
-                tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
               />
               <Tooltip
                 contentStyle={{
@@ -530,8 +570,9 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                   color: '#f1f5f9',
                 }}
                 formatter={(v: number) => [formatCurrency(v), 'Ingresos']}
+                labelFormatter={(l) => `Período: ${l}`}
               />
-              <Bar dataKey="amount" fill="#22c55e" radius={[4, 4, 0, 0]} name="Ingresos" />
+              <Bar dataKey="amount" fill="#22c55e" radius={[3, 3, 0, 0]} name="Ingresos" />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -564,6 +605,7 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                     borderRadius: 8,
                     color: '#f1f5f9',
                   }}
+                  itemStyle={{ color: '#f1f5f9', fontWeight: 600 }}
                   formatter={(v: number) => [formatCurrency(v)]}
                 />
                 <Legend
@@ -707,7 +749,7 @@ function fillPeriodGaps(
     for (let m = 11; m >= 0; m--) {
       const dt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - m, 1))
       const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`
-      const label = `${MONTH_NAMES[dt.getUTCMonth()]} ${String(dt.getUTCFullYear()).slice(2)}`
+      const label = MONTH_NAMES[dt.getUTCMonth()]
       result.push({ period: key, label, ...(map.get(key) ?? { count: 0, amount: 0 }) })
     }
   } else {
@@ -941,6 +983,7 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                       borderRadius: 8,
                       color: '#f1f5f9',
                     }}
+                    itemStyle={{ color: '#f1f5f9', fontWeight: 600 }}
                     formatter={(v: number) => [formatCurrency(v)]}
                   />
                   <Legend formatter={(v) => <span style={{ color: '#94a3b8', fontSize: 12 }}>{v}</span>} />
