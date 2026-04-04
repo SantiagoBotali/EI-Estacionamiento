@@ -489,7 +489,7 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
       />
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard
           icon={<DollarSign className="w-5 h-5" />}
           label="Ingresos hoy"
@@ -507,12 +507,6 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           label="Ticket promedio"
           value={formatCurrency(kpi?.ticket_promedio ?? 0)}
           color="purple"
-        />
-        <KpiCard
-          icon={<Users className="w-5 h-5" />}
-          label="Pendiente de cobro"
-          value={formatCurrency(kpi?.pendiente ?? 0)}
-          color="amber"
         />
       </div>
 
@@ -784,27 +778,37 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <AdminHeader
-          icon={<Calendar className="w-5 h-5" />}
-          title="Dashboards Operacionales"
-          lastRefresh={lastRefresh}
-          onRefresh={() => load(granularity)}
-        />
-        {/* Granularity selector */}
-        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
-          {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
-            <button
-              key={g}
-              onClick={() => switchGran(g)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g
-                ? 'bg-purple-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200'
-                }`}
-            >
-              {GRAN_LABELS[g]}
-            </button>
-          ))}
+      <div className="flex items-center gap-4 flex-wrap">
+        {/* Title */}
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <div className="text-purple-400"><Calendar className="w-5 h-5" /></div>
+          <h2 className="text-lg font-bold text-white">Dashboards Operacionales</h2>
+        </div>
+        {/* Refresh + granularity — same row, vertically centered */}
+        <div className="flex items-center gap-3">
+          {lastRefresh && (
+            <span className="text-slate-600 text-xs hidden sm:block">
+              Act. {lastRefresh.toLocaleTimeString('es-AR')}
+            </span>
+          )}
+          <button onClick={() => load(granularity)} className="btn-ghost text-xs">
+            <RefreshCw className="w-3.5 h-3.5" />
+            Actualizar
+          </button>
+          <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
+            {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
+              <button
+                key={g}
+                onClick={() => switchGran(g)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+                  }`}
+              >
+                {GRAN_LABELS[g]}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -825,7 +829,7 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
       {loading ? <LoadingScreen /> : (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard
               icon={<Car className="w-5 h-5" />}
               label="Total estadías"
@@ -849,12 +853,6 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
               label="Ticket promedio"
               value={formatCurrency(kpi?.avg_ticket ?? 0)}
               color="amber"
-            />
-            <KpiCard
-              icon={<Users className="w-5 h-5" />}
-              label="Pendiente"
-              value={formatCurrency(kpi?.pending ?? 0)}
-              color="red"
             />
           </div>
 
