@@ -486,7 +486,7 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const revenueData = fillPeriodGaps(rollup?.revenue_by_period ?? [], granularity)
   const xInterval = granularity === 'daily' ? 4 : 0
 
-  const pieData = (rollup?.by_method ?? kpi?.por_metodo ?? []).map((m) => ({
+  const pieData = (rollup?.by_method ?? []).map((m) => ({
     name: m.method === 'CASH' ? 'Efectivo' : m.method === 'SIMULATED' ? 'Simulado' : 'MercadoPago',
     value: m.amount,
     color: METHOD_COLORS[m.method] ?? '#64748b',
@@ -528,11 +528,6 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           <span className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-full font-medium text-slate-400">
             {rollup.period_label}
           </span>
-          {rollup.peak_period && (
-            <span className="px-2.5 py-1 bg-purple-900/40 border border-purple-700/40 rounded-full text-purple-400">
-              Pico: {formatPeriodLabel(rollup.peak_period, granularity)}
-            </span>
-          )}
         </div>
       )}
 
@@ -553,7 +548,7 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         <KpiCard
           icon={<CreditCard className="w-5 h-5" />}
           label="Ticket promedio"
-          value={formatCurrency(rollup?.avg_ticket ?? kpi?.ticket_promedio ?? 0)}
+          value={formatCurrency(rollup?.avg_ticket ?? 0)}
           color="purple"
         />
         <KpiCard
