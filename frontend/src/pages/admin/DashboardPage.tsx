@@ -510,11 +510,10 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             <button
               key={g}
               onClick={() => switchGran(g)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                granularity === g
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g
                   ? 'bg-purple-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
             >
               {GRAN_LABELS[g]}
             </button>
