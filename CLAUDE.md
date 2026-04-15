@@ -2,13 +2,34 @@
 
 ## Cómo correr
 
+### Opción 1: Todo junto en una terminal (RECOMENDADO)
+
 ```bash
-# Backend (FastAPI)
+cd "D:/Proyectos PTF/Estacionamiento - SDG +"
+
+# Bash (Git Bash / WSL)
+./run-all.sh
+
+# Batch (Command Prompt)
+run-all.bat
+
+# O PowerShell
+.\run-all.ps1
+```
+Inicia Backend + Frontend simultáneamente.
+- App: http://localhost:5173/react/
+- Salida: http://localhost:5173/react/exit
+- API: http://localhost:8000/
+
+### Opción 2: Terminales separadas
+
+```bash
+# Terminal 1: Backend (FastAPI)
 cd "D:/Proyectos PTF/Estacionamiento - SDG +"
 .venv/Scripts/python run.py
 # → http://localhost:8000/
 
-# Frontend React (dev)
+# Terminal 2: Frontend React (dev)
 cd frontend && npm run dev
 # → http://localhost:5173/react/
 
@@ -104,6 +125,7 @@ run.py               — entry point (WindowsSelectorEventLoopPolicy para Window
 4. **Windows asyncio**: `asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())` en `run.py`
 5. **SQLite threads**: `connect_args={"check_same_thread": False}`
 6. **pydantic-settings**: `protected_namespaces=()` en `app/config.py`
+7. **stay.status tipo**: `stay.status` es `str` (no enum) desde DB → usar `stay.status` NO `stay.status.value` en respuestas JSON
 
 ## Archivos legacy (NO modificar)
 
