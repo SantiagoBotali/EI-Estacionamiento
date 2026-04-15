@@ -65,7 +65,12 @@ export function MapPage() {
             <Link to="/kiosk"
                   className="text-slate-400 hover:text-white text-sm px-3 py-1.5
                              rounded-lg hover:bg-slate-800 transition-all">
-              Kiosco
+              Ingreso
+            </Link>
+            <Link to="/exit"
+                  className="text-slate-400 hover:text-white text-sm px-3 py-1.5
+                             rounded-lg hover:bg-slate-800 transition-all">
+              Salida
             </Link>
             <Link to="/employee/login"
                   className="text-slate-400 hover:text-white text-sm px-3 py-1.5

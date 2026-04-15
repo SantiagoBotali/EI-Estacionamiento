@@ -3,6 +3,7 @@ import { ToastProvider } from './components/ui/Toast'
 import { getRole, getToken } from './api/client'
 import { MapPage } from './pages/public/MapPage'
 import { KioskPage } from './pages/public/KioskPage'
+import { ExitPage } from './pages/public/ExitPage'
 import { EmployeeLoginPage } from './pages/employee/LoginPage'
 import { EmployeePanelPage } from './pages/employee/PanelPage'
 import { AdminLoginPage } from './pages/admin/LoginPage'
@@ -33,6 +34,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<MapPage />} />
           <Route path="/kiosk" element={<KioskPage />} />
+          <Route path="/exit" element={<ExitPage />} />
           <Route path="/employee/login" element={<EmployeeLoginPage />} />
           <Route
             path="/employee/panel"
