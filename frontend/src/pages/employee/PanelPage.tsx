@@ -10,6 +10,7 @@ import { useClock } from '../../hooks/useClock'
 import { getParkingState, type ParkingState } from '../../api/parking'
 import {
   getActiveStays, lookupStay, createStay, closeCash, simulatePayment,
+  initiateMercadoPago,
   getEmployeeTariff, generateTodayStays,
   type ActiveStay, type StayLookupResponse, type TariffInfo,
 } from '../../api/employee'
@@ -343,6 +344,22 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     }
   }
 
+  const handleMercadoPago = async (stayId: string) => {
+    setPaying(true)
+    try {
+      const result = await initiateMercadoPago(stayId)
+      // Abrir la página de pago de MercadoPago en una nueva pestaña
+      window.open(result.url_preferencia_pago, '_blank', 'noopener,noreferrer')
+      toast('success', 'Redireccionando a MercadoPago…')
+      clearSearch()
+      loadStays()
+    } catch (e) {
+      toast('error', (e as Error).message)
+    } finally {
+      setPaying(false)
+    }
+  }
+
   const openCashModal = (stayId: string, amount: number) => {
     setCashModal({ stayId, amount })
   }
@@ -425,6 +442,17 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                 >
                   <CreditCard className="w-4 h-4" />
                   Cobrar efectivo
+                </button>
+                <button
+                  onClick={() => handleMercadoPago(lookupResult.stay.id)}
+                  className="btn-primary bg-[#009ee3] hover:bg-[#007bbf] border-[#009ee3]/40"
+                  disabled={paying}
+                  title="Cobrar con MercadoPago — abre la página de pago en nueva pestaña"
+                >
+                  {paying
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <CreditCard className="w-4 h-4" />}
+                  MercadoPago
                 </button>
                 <button
                   onClick={() => handleSimulate(lookupResult.stay.id)}
@@ -520,6 +548,15 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                             >
                               <CreditCard className="w-3.5 h-3.5" />
                               Efectivo
+                            </button>
+                            <button
+                              onClick={() => handleMercadoPago(s.id)}
+                              className="btn-primary py-1 px-2 text-xs bg-[#009ee3] hover:bg-[#007bbf] border-[#009ee3]/40"
+                              disabled={paying}
+                              title="Cobrar con MercadoPago"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              MP
                             </button>
                             <button
                               onClick={() => handleSimulate(s.id)}

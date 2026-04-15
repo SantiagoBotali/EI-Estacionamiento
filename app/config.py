@@ -38,5 +38,26 @@ class Settings(BaseSettings):
     # Media
     car_icon_path: str = "Media/car.png"
 
+    # ── MercadoPago ───────────────────────────────────────────────────────────
+    # Access Token de producción/sandbox (panel de MP → Credenciales)
+    mp_access_token: str = ""
+
+    # Clave secreta generada al registrar el Webhook en el panel de MP
+    mp_webhook_secret: str = ""
+
+    # URL HTTPS pública del backend donde MP envía notificaciones.
+    # En desarrollo: usar ngrok → ej. https://abc123.ngrok.io/api/payments/mp/webhook
+    mp_url_backend: str = ""
+
+    # URL a la que MP redirige al usuario tras un pago APROBADO.
+    # El backend concatena /{stay_id} al final.
+    mp_url_frontend_success: str = "http://localhost:5173/pago/exito"
+
+    # URL a la que MP redirige si el pago FALLA o está PENDIENTE.
+    mp_url_frontend_failure: str = "http://localhost:5173/pago/error"
+
+    # Minutos antes de que el cron cancele estadías PAYMENT_PENDING sin pago.
+    mp_time: int = 30
+
 
 settings = Settings()

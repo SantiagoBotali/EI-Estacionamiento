@@ -86,6 +86,14 @@ class Stay(Base):
         Integer, ForeignKey("users.id"), nullable=True
     )
 
+    # ── MercadoPago ───────────────────────────────────────────────────────────
+    # ID numérico del pago aprobado en MP (NULL = no pagado aún)
+    mp_payment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # URL init_point de la Preference de MP; se abre con window.open() en el frontend
+    url_preferencia_pago: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Momento en que se pasó a PAYMENT_PENDING; usado por el cron de timeout
+    fecha_pendiente: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_by: Mapped["User | None"] = relationship(
         "User", foreign_keys=[created_by_id], back_populates="stays_created"
     )

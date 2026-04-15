@@ -77,6 +77,10 @@ class StayOut(BaseModel):
     notes: Optional[str] = None
     slot_vision_id: Optional[int] = None
     ticket: Optional[TicketOut] = None
+    # MercadoPago
+    mp_payment_id: Optional[str] = None
+    url_preferencia_pago: Optional[str] = None
+    fecha_pendiente: Optional[datetime] = None
 
 
 class StayCreateResponse(BaseModel):
@@ -113,6 +117,12 @@ class PaymentOut(BaseModel):
 class PaymentResponse(BaseModel):
     payment: PaymentOut
     stay: StayOut
+
+
+class MPInitiateResponse(BaseModel):
+    """Response returned by POST /api/payments/mp/initiate/{stay_id}."""
+    stay: StayOut
+    url_preferencia_pago: str
 
 
 # ─── Tariff Settings ─────────────────────────────────────────────────────────

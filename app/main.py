@@ -32,12 +32,34 @@ async def lifespan(app: FastAPI):
     app.state.detector = detector
     logger.info("Vision detector started.")
 
+    # ── APScheduler: cron de cancelación de estadías PAYMENT_PENDING ─────────
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from app.database import SessionLocal
+    from app.services.mercadopago_service import cancelar_estadias_timeout
+
+    scheduler = BackgroundScheduler(timezone="UTC", job_defaults={"misfire_grace_time": 60})
+    scheduler.add_job(
+        cancelar_estadias_timeout,
+        trigger="interval",
+        minutes=5,
+        id="mp_timeout_cron",
+        args=[SessionLocal],
+    )
+    scheduler.start()
+    app.state.scheduler = scheduler
+    logger.info("APScheduler started — MP timeout cron running every 5 min.")
+
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
     logger.info("Stopping vision detector...")
     if hasattr(app.state, "detector"):
         app.state.detector.stop()
+
+    logger.info("Stopping APScheduler...")
+    if hasattr(app.state, "scheduler"):
+        app.state.scheduler.shutdown(wait=False)
+
     logger.info("Shutdown complete.")
 
 

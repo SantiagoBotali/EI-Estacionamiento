@@ -18,6 +18,10 @@ export interface Stay {
   payment_method?: string
   notes?: string
   ticket?: Ticket
+  // MercadoPago
+  mp_payment_id?: string
+  url_preferencia_pago?: string
+  fecha_pendiente?: string
 }
 
 export interface ActiveStay extends Stay {
@@ -78,4 +82,14 @@ export function generateTodayStays(): Promise<GenerateTodayResult> {
 
 export function simulatePayment(stayId: string): Promise<{ stay: Stay }> {
   return apiFetch(`/api/payments/simulate/${stayId}`, { method: 'POST' })
+}
+
+export interface MPInitiateResponse {
+  stay: Stay
+  url_preferencia_pago: string
+}
+
+/** Inicia el cobro con MercadoPago: crea la Preference y retorna la URL de pago. */
+export function initiateMercadoPago(stayId: string): Promise<MPInitiateResponse> {
+  return apiFetch(`/api/payments/mp/initiate/${stayId}`, { method: 'POST' })
 }
