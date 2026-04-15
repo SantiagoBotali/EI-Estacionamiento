@@ -328,5 +328,11 @@ async def update_tariff_settings(
             row.value = str(body.minimum_charge)
         else:
             db.add(SystemSetting(key="minimum_charge", value=str(body.minimum_charge)))
+    if body.grace_period_minutes is not None:
+        row = db.get(SystemSetting, "grace_period_minutes")
+        if row:
+            row.value = str(body.grace_period_minutes)
+        else:
+            db.add(SystemSetting(key="grace_period_minutes", value=str(body.grace_period_minutes)))
     db.commit()
     return {"ok": True}

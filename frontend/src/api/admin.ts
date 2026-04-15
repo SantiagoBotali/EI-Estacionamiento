@@ -54,6 +54,6 @@ export function getTariffSettings(): Promise<TariffSettings> {
   return apiFetch('/api/admin/settings/tariff')
 }
 
-export function updateTariff(rate_per_hour?: number, minimum_charge?: number): Promise<void> {
-  return apiFetch('/api/admin/settings/tariff', { method: 'PUT', body: { rate_per_hour, minimum_charge } })
+export function updateTariff(rate_per_hour?: number, minimum_charge?: number, grace_period_minutes?: number): Promise<void> {
+  return apiFetch('/api/admin/settings/tariff', { method: 'PUT', body: { rate_per_hour, minimum_charge, grace_period_minutes } })
 }

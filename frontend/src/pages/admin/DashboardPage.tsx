@@ -15,7 +15,7 @@ import {
   type FinanceKPI, type OperationsKPI, type TariffSettings, type RollupKPI,
 } from '../../api/admin'
 import {
-  getActiveStays, lookupStay, closeCash, simulatePayment,
+  getActiveStays, lookupStay, closeCash, simulatePayment, initiateMercadoPago,
   getEmployeeTariff, generateTodayStays,
   type ActiveStay, type StayLookupResponse, type TariffInfo,
 } from '../../api/employee'
@@ -169,8 +169,10 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [loading, setLoading] = useState(true)
   const [newRate, setNewRate] = useState('')
   const [newMinimum, setNewMinimum] = useState('')
+  const [newGrace, setNewGrace] = useState('')
   const [rateError, setRateError] = useState('')
   const [minimumError, setMinimumError] = useState('')
+  const [graceError, setGraceError] = useState('')
   const [saving, setSaving] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [confirmRate, setConfirmRate] = useState<number | null>(null)
@@ -199,14 +201,17 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     setSaving(true)
     try {
       const parsedMin = newMinimum.trim() ? parseFloat(newMinimum.trim()) : undefined
-      await updateTariff(rate, parsedMin)
+      const parsedGrace = newGrace.trim() ? parseInt(newGrace.trim(), 10) : undefined
+      await updateTariff(rate, parsedMin, parsedGrace)
       // Re-fetch to get the server's canonical values — prevents NaN from PUT response
       const updated = await getTariffSettings()
       setTariff(updated)
       setNewRate('')
       setNewMinimum('')
+      setNewGrace('')
       setRateError('')
       setMinimumError('')
+      setGraceError('')
       toast('success', 'Tarifa actualizada')
     } catch (err) {
       toast('error', (err as Error).message)
@@ -219,8 +224,10 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     e.preventDefault()
     const trimmed = newRate.trim()
     const minTrimmed = newMinimum.trim()
+    const graceTrimmed = newGrace.trim()
     const rate = trimmed ? parseFloat(trimmed) : undefined
     const minimum = minTrimmed ? parseFloat(minTrimmed) : undefined
+    const grace = graceTrimmed ? parseInt(graceTrimmed, 10) : undefined
 
     let hasError = false
     if (trimmed && (isNaN(rate!) || rate! <= 0)) {
@@ -235,8 +242,14 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     } else {
       setMinimumError('')
     }
+    if (graceTrimmed && (isNaN(grace!) || grace! < 0 || !Number.isInteger(grace!))) {
+      setGraceError('Ingresá un número entero de minutos (0 o mayor)')
+      hasError = true
+    } else {
+      setGraceError('')
+    }
     if (hasError) return
-    if (!trimmed && !minTrimmed) {
+    if (!trimmed && !minTrimmed && !graceTrimmed) {
       setRateError('Ingresá al menos un valor a actualizar')
       return
     }
@@ -358,8 +371,8 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             </div>
           </div>
           <form onSubmit={saveTariff} className="flex flex-col gap-2 pt-1">
-            <div className="flex flex-wrap gap-2">
-              <div className="flex flex-col gap-1 max-w-xs w-full">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1">
                 <input
                   type="text"
                   inputMode="decimal"
@@ -379,7 +392,7 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                   <p className="text-red-400 text-xs">{rateError}</p>
                 )}
               </div>
-              <div className="flex flex-col gap-1 max-w-xs w-full">
+              <div className="flex flex-col gap-1">
                 <input
                   type="text"
                   inputMode="decimal"
@@ -399,7 +412,29 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                   <p className="text-red-400 text-xs">{minimumError}</p>
                 )}
               </div>
-              <button type="submit" disabled={saving} className="btn-primary shrink-0 self-start">
+              <div className="flex flex-col gap-1">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={newGrace}
+                  onChange={(e) => { setNewGrace(e.target.value); setGraceError('') }}
+                  onBlur={() => {
+                    const trimmed = newGrace.trim()
+                    if (trimmed && (isNaN(parseInt(trimmed, 10)) || parseInt(trimmed, 10) < 0)) {
+                      setGraceError('Ingresá minutos (0 o mayor)')
+                    }
+                  }}
+                  placeholder="Nuevo período de gracia (min)"
+                  className={`input w-full ${graceError ? 'border-red-500/60 focus:border-red-500' : ''}`}
+                  disabled={saving}
+                />
+                {graceError && (
+                  <p className="text-red-400 text-xs">{graceError}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-center pt-1">
+              <button type="submit" disabled={saving} className="btn-primary">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
                 Actualizar
               </button>
@@ -1095,6 +1130,21 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     }
   }
 
+  const handleMercadoPago = async (stayId: string) => {
+    setPaying(true)
+    try {
+      const result = await initiateMercadoPago(stayId)
+      window.open(result.url_preferencia_pago, '_blank', 'noopener,noreferrer')
+      toast('success', 'Redireccionando a MercadoPago…')
+      clearSearch()
+      loadStays()
+    } catch (e) {
+      toast('error', (e as Error).message)
+    } finally {
+      setPaying(false)
+    }
+  }
+
   const openCashModal = (stayId: string, amount: number) => {
     setCashModal({ stayId, amount })
   }
@@ -1170,6 +1220,15 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                 >
                   <CreditCard className="w-4 h-4" />
                   Cobrar efectivo
+                </button>
+                <button
+                  onClick={() => handleMercadoPago(lookupResult.stay.id)}
+                  className="btn-primary bg-[#009ee3] hover:bg-[#007bbf] border-[#009ee3]/40"
+                  disabled={paying}
+                  title="Cobrar con MercadoPago — abre en nueva pestaña"
+                >
+                  {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+                  MercadoPago
                 </button>
                 <button
                   onClick={() => handleSimulate(lookupResult.stay.id)}
@@ -1261,6 +1320,15 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                             >
                               <CreditCard className="w-3.5 h-3.5" />
                               Efectivo
+                            </button>
+                            <button
+                              onClick={() => handleMercadoPago(s.id)}
+                              className="btn-primary py-1 px-2 text-xs bg-[#009ee3] hover:bg-[#007bbf] border-[#009ee3]/40"
+                              disabled={paying}
+                              title="Cobrar con MercadoPago"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              MP
                             </button>
                             <button
                               onClick={() => handleSimulate(s.id)}

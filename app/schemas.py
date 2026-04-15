@@ -136,6 +136,7 @@ class TariffSettings(BaseModel):
 class TariffUpdate(BaseModel):
     rate_per_hour: Optional[float] = None
     minimum_charge: Optional[float] = None
+    grace_period_minutes: Optional[int] = None
 
 
 # ─── Admin KPIs ──────────────────────────────────────────────────────────────
