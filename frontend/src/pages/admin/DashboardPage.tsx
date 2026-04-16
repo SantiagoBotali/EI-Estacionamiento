@@ -469,14 +469,23 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   return (
     <div className="space-y-6">
       {/* Header row with granularity selector */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <AdminHeader
-          icon={<DollarSign className="w-5 h-5" />}
-          title="Finanzas"
-          lastRefresh={lastRefresh}
-          onRefresh={() => load(granularity)}
-        />
-        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2.5">
+          <div className="text-purple-400"><DollarSign className="w-5 h-5" /></div>
+          <h2 className="text-lg font-bold text-white">Finanzas</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRefresh && (
+            <span className="text-slate-600 text-xs hidden sm:block">
+              Act. {lastRefresh.toLocaleTimeString('es-AR')}
+            </span>
+          )}
+          <button onClick={() => load(granularity)} className="btn-ghost text-xs">
+            <RefreshCw className="w-3.5 h-3.5" />
+            Actualizar
+          </button>
+        </div>
+        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1 ml-auto">
           {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
             <button
               key={g}
@@ -644,7 +653,9 @@ const GRAN_LABELS: Record<Granularity, string> = {
   yearly: 'Anual',
 }
 
-const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+const MONTH_ABBR_ONLY = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+const MONTH_NAMES = MONTH_ABBR_ONLY
 
 /** Fill gaps so every expected period bucket appears in the chart */
 function fillPeriodGaps(
@@ -670,7 +681,7 @@ function fillPeriodGaps(
     for (let m = 11; m >= 0; m--) {
       const dt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - m, 1))
       const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`
-      const label = `${MONTH_NAMES[dt.getUTCMonth()]} ${String(dt.getUTCFullYear()).slice(2)}`
+      const label = `${MONTH_NAMES[dt.getUTCMonth()]}`
       result.push({ period: key, label, ...(map.get(key) ?? { count: 0, amount: 0 }) })
     }
   } else {
@@ -691,8 +702,8 @@ function formatPeriodLabel(period: string | undefined, granularity: Granularity)
     return `${d}/${m}`
   }
   if (granularity === 'monthly') {
-    const [y, m] = period.split('-')
-    return `${MONTH_NAMES[parseInt(m) - 1]} ${y.slice(2)}`
+    const [, m] = period.split('-')
+    return `${MONTH_NAMES[parseInt(m) - 1]}`
   }
   return period
 }
@@ -735,15 +746,24 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <AdminHeader
-          icon={<Calendar className="w-5 h-5" />}
-          title="Dashboards Operacionales"
-          lastRefresh={lastRefresh}
-          onRefresh={() => load(granularity)}
-        />
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2.5">
+          <div className="text-purple-400"><Calendar className="w-5 h-5" /></div>
+          <h2 className="text-lg font-bold text-white">Dashboards</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRefresh && (
+            <span className="text-slate-600 text-xs hidden sm:block">
+              Act. {lastRefresh.toLocaleTimeString('es-AR')}
+            </span>
+          )}
+          <button onClick={() => load(granularity)} className="btn-ghost text-xs">
+            <RefreshCw className="w-3.5 h-3.5" />
+            Actualizar
+          </button>
+        </div>
         {/* Granularity selector */}
-        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
+        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1 ml-auto">
           {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
             <button
               key={g}
@@ -1017,14 +1037,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                 <CreditCard className="w-4 h-4" />
                 Cobrar efectivo
               </button>
-              <button
-                onClick={() => openMpModal(lookupResult.stay.id, computeLiveAmount(lookupResult.stay.entry_at, tariff))}
-                className="btn-primary"
-                disabled={paying}
-              >
-                <Activity className="w-4 h-4" />
-                MercadoPago
-              </button>
             </div>
           )}
         </div>
@@ -1106,14 +1118,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                             >
                               <CreditCard className="w-3.5 h-3.5" />
                               Efectivo
-                            </button>
-                            <button
-                              onClick={() => openMpModal(s.id, liveAmount)}
-                              className="btn-primary py-1 px-2 text-xs"
-                              disabled={paying}
-                            >
-                              <Activity className="w-3.5 h-3.5" />
-                              MercadoPago
                             </button>
                           </div>
                         </td>

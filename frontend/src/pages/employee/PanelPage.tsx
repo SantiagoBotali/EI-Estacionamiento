@@ -410,14 +410,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                 <CreditCard className="w-4 h-4" />
                 Cobrar efectivo
               </button>
-              <button
-                onClick={() => openMpModal(lookupResult.stay.id, computeLiveAmount(lookupResult.stay.entry_at, tariff))}
-                className="btn-primary"
-                disabled={paying}
-              >
-                <Activity className="w-4 h-4" />
-                MercadoPago
-              </button>
             </div>
           )}
         </div>
@@ -501,14 +493,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                           >
                             <CreditCard className="w-3.5 h-3.5" />
                             Efectivo
-                          </button>
-                          <button
-                            onClick={() => openMpModal(s.id, liveAmount)}
-                            className="btn-primary py-1 px-2 text-xs"
-                            disabled={paying}
-                          >
-                            <Activity className="w-3.5 h-3.5" />
-                            MercadoPago
                           </button>
                         </div>
                       </td>
