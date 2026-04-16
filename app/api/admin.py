@@ -316,11 +316,16 @@ async def update_tariff_settings(
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    if body.rate_per_hour is not None:
-        row = db.get(SystemSetting, "rate_per_hour")
-        if row:
-            row.value = str(body.rate_per_hour)
-        else:
-            db.add(SystemSetting(key="rate_per_hour", value=str(body.rate_per_hour)))
-        db.commit()
+    for key, val in [
+        ("rate_per_hour", body.rate_per_hour),
+        ("minimum_charge", body.minimum_charge),
+        ("grace_period_minutes", body.grace_period_minutes),
+    ]:
+        if val is not None:
+            row = db.get(SystemSetting, key)
+            if row:
+                row.value = str(val)
+            else:
+                db.add(SystemSetting(key=key, value=str(val)))
+    db.commit()
     return {"ok": True}

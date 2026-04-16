@@ -98,7 +98,9 @@ def lookup_stay(db: Session, query: str) -> tuple[Stay, Ticket, float]:
 
     from app.database import get_setting
     rate = float(get_setting(db, "rate_per_hour", "1200.0"))
-    amount = calculate_price(stay.entry_at, rate_per_hour=rate)
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
+    grace = int(get_setting(db, "grace_period_minutes", "15"))
+    amount = calculate_price(stay.entry_at, rate_per_hour=rate, minimum_charge=minimum, grace_period_minutes=grace)
     stay.amount_expected = amount
     db.commit()
     db.refresh(stay)
@@ -130,8 +132,10 @@ def close_cash(
     from app.models import Payment, PaymentMethod, PaymentStatus
 
     rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
+    grace = int(get_setting(db, "grace_period_minutes", "15"))
     now = datetime.now(timezone.utc)
-    amount = calculate_price(stay.entry_at, now, rate_per_hour=rate)
+    amount = calculate_price(stay.entry_at, now, rate_per_hour=rate, minimum_charge=minimum, grace_period_minutes=grace)
 
     stay.exit_at = now
     stay.amount_paid = amount

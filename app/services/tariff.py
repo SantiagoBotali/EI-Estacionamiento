@@ -11,6 +11,7 @@ def calculate_price(
     exit_at: datetime | None = None,
     rate_per_hour: float | None = None,
     minimum_charge: float | None = None,
+    grace_period_minutes: int | None = None,
 ) -> float:
     """
     Calculate parking fee based on duration.
@@ -33,7 +34,7 @@ def calculate_price(
     duration_seconds = max(0, (exit_at - entry_at).total_seconds())
     duration_minutes = duration_seconds / 60.0
 
-    grace = settings.grace_period_minutes
+    grace = grace_period_minutes if grace_period_minutes is not None else settings.grace_period_minutes
     rate = rate_per_hour if rate_per_hour is not None else settings.rate_per_hour
     minimum = minimum_charge if minimum_charge is not None else settings.minimum_charge
 

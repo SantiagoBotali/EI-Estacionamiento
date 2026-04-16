@@ -54,6 +54,6 @@ export function getTariffSettings(): Promise<TariffSettings> {
   return apiFetch('/api/admin/settings/tariff')
 }
 
-export function updateTariff(rate_per_hour: number): Promise<void> {
-  return apiFetch('/api/admin/settings/tariff', { method: 'PUT', body: { rate_per_hour } })
+export function updateTariff(fields: Partial<TariffSettings>): Promise<void> {
+  return apiFetch('/api/admin/settings/tariff', { method: 'PUT', body: fields })
 }

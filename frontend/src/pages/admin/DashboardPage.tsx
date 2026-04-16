@@ -15,11 +15,15 @@ import {
   type FinanceKPI, type OperationsKPI, type TariffSettings, type RollupKPI,
 } from '../../api/admin'
 import {
-  getActiveStays, lookupStay, closeCash, simulatePayment,
+  getActiveStays, lookupStay, closeCash,
   getEmployeeTariff, generateTodayStays,
   type ActiveStay, type StayLookupResponse, type TariffInfo,
 } from '../../api/employee'
-import { getParkingState, type ParkingState } from '../../api/parking'
+import {
+  getParkingState, createMPPreference, checkMPPaymentStatus,
+  type ParkingState, type MPPreferenceResponse,
+} from '../../api/parking'
+import QRCode from 'react-qr-code'
 import { CameraFeed } from '../../components/CameraFeed'
 import { ParkingMap } from '../../components/ParkingMap'
 import { useParkingSSE } from '../../hooks/useParkingSSE'
@@ -47,7 +51,6 @@ const CHART_THEME = {
 
 const METHOD_COLORS: Record<string, string> = {
   CASH: '#22c55e',
-  SIMULATED: '#3b82f6',
   MERCADOPAGO: '#a855f7',
 }
 
@@ -167,10 +170,16 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [kpi, setKpi] = useState<OperationsKPI | null>(null)
   const [tariff, setTariff] = useState<TariffSettings | null>(null)
   const [loading, setLoading] = useState(true)
-  const [newRate, setNewRate] = useState('')
-  const [rateError, setRateError] = useState('')
-  const [saving, setSaving] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+
+  // Per-field tariff inputs
+  const [newRate, setNewRate]       = useState('')
+  const [newMin, setNewMin]         = useState('')
+  const [newGrace, setNewGrace]     = useState('')
+  const [rateError, setRateError]   = useState('')
+  const [minError, setMinError]     = useState('')
+  const [graceError, setGraceError] = useState('')
+  const [savingField, setSavingField] = useState<'rate' | 'min' | 'grace' | null>(null)
   const [confirmRate, setConfirmRate] = useState<number | null>(null)
 
   const load = useCallback(async () => {
@@ -192,38 +201,47 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     return () => clearInterval(id)
   }, [load])
 
-  const doSave = async (rate: number) => {
+  const doSaveField = async (fields: Partial<TariffSettings>, field: 'rate' | 'min' | 'grace') => {
     setConfirmRate(null)
-    setSaving(true)
+    setSavingField(field)
     try {
-      await updateTariff(rate)
-      // Re-fetch to get the server's canonical values — prevents NaN from PUT response
+      await updateTariff(fields)
       const updated = await getTariffSettings()
       setTariff(updated)
-      setNewRate('')
-      setRateError('')
+      if (field === 'rate') setNewRate('')
+      if (field === 'min') setNewMin('')
+      if (field === 'grace') setNewGrace('')
       toast('success', 'Tarifa actualizada')
     } catch (err) {
       toast('error', (err as Error).message)
     } finally {
-      setSaving(false)
+      setSavingField(null)
     }
   }
 
-  const saveTariff = (e: FormEvent) => {
+  const saveRate = (e: FormEvent) => {
     e.preventDefault()
-    const trimmed = newRate.trim()
-    const rate = parseFloat(trimmed)
-    if (!trimmed || isNaN(rate) || rate <= 0) {
-      setRateError('Ingresá un valor numérico mayor a 0')
-      return
-    }
+    const v = parseFloat(newRate.trim())
+    if (!newRate.trim() || isNaN(v) || v <= 0) { setRateError('Ingresá un valor mayor a 0'); return }
     setRateError('')
-    if (rate > HIGH_RATE_THRESHOLD) {
-      setConfirmRate(rate)
-      return
-    }
-    doSave(rate)
+    if (v > HIGH_RATE_THRESHOLD) { setConfirmRate(v); return }
+    doSaveField({ rate_per_hour: v }, 'rate')
+  }
+
+  const saveMin = (e: FormEvent) => {
+    e.preventDefault()
+    const v = parseFloat(newMin.trim())
+    if (!newMin.trim() || isNaN(v) || v < 0) { setMinError('Ingresá un valor válido'); return }
+    setMinError('')
+    doSaveField({ minimum_charge: v }, 'min')
+  }
+
+  const saveGrace = (e: FormEvent) => {
+    e.preventDefault()
+    const v = parseInt(newGrace.trim(), 10)
+    if (!newGrace.trim() || isNaN(v) || v < 0) { setGraceError('Ingresá un valor válido en minutos'); return }
+    setGraceError('')
+    doSaveField({ grace_period_minutes: v }, 'grace')
   }
 
   if (loading) return <LoadingScreen />
@@ -239,130 +257,116 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          icon={<Car className="w-5 h-5" />}
-          label="Autos hoy"
-          value={kpi?.autos_hoy ?? 0}
-          color="blue"
-        />
-        <KpiCard
-          icon={<Clock className="w-5 h-5" />}
-          label="Duración promedio"
-          value={formatDuration(kpi?.duracion_promedio_min ?? 0)}
-          color="purple"
-        />
-        <KpiCard
-          icon={<Zap className="w-5 h-5" />}
-          label="Hora pico"
-          value={kpi?.hora_pico ?? '—'}
-          color="amber"
-        />
-        <KpiCard
-          icon={<Activity className="w-5 h-5" />}
-          label="Ocupación actual"
-          value={`${Math.round(kpi?.tasa_ocupacion_pct ?? 0)}%`}
-          color="emerald"
-        />
+        <KpiCard icon={<Car className="w-5 h-5" />} label="Autos hoy" value={kpi?.autos_hoy ?? 0} color="blue" />
+        <KpiCard icon={<Clock className="w-5 h-5" />} label="Duración promedio" value={formatDuration(kpi?.duracion_promedio_min ?? 0)} color="purple" />
+        <KpiCard icon={<Zap className="w-5 h-5" />} label="Hora pico" value={kpi?.hora_pico ?? '—'} color="amber" />
+        <KpiCard icon={<Activity className="w-5 h-5" />} label="Ocupación actual" value={`${Math.round(kpi?.tasa_ocupacion_pct ?? 0)}%`} color="emerald" />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <ChartCard title="Autos por hora (hoy)">
+        <ChartCard title="Ingresos de autos por hora (hoy)">
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={kpi?.autos_por_hora ?? []} barSize={10}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
-              <XAxis
-                dataKey="hour"
-                stroke={CHART_THEME.axis}
-                tick={{ fill: CHART_THEME.text, fontSize: 11 }}
-                interval={3}
-              />
+              <XAxis dataKey="hour" stroke={CHART_THEME.axis} tick={{ fill: CHART_THEME.text, fontSize: 11 }} interval={3} />
               <YAxis stroke={CHART_THEME.axis} tick={{ fill: CHART_THEME.text, fontSize: 11 }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: CHART_THEME.tooltip.bg,
-                  border: `1px solid ${CHART_THEME.tooltip.border}`,
-                  borderRadius: 8,
-                  color: '#f1f5f9',
-                }}
-              />
+              <Tooltip contentStyle={{ backgroundColor: CHART_THEME.tooltip.bg, border: `1px solid ${CHART_THEME.tooltip.border}`, borderRadius: 8, color: '#f1f5f9' }} itemStyle={{ color: '#f1f5f9' }} labelStyle={{ color: '#94a3b8' }} />
               <Bar dataKey="count" fill="#3b82f6" radius={[3, 3, 0, 0]} name="Autos" />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Autos por día (últimos 7 días)">
+        <ChartCard title="Ingresos de autos por día (últimos 7 días)">
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={kpi?.autos_por_dia ?? []}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
               <XAxis dataKey="date" stroke={CHART_THEME.axis} tick={{ fill: CHART_THEME.text, fontSize: 11 }} />
               <YAxis stroke={CHART_THEME.axis} tick={{ fill: CHART_THEME.text, fontSize: 11 }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: CHART_THEME.tooltip.bg,
-                  border: `1px solid ${CHART_THEME.tooltip.border}`,
-                  borderRadius: 8,
-                  color: '#f1f5f9',
-                }}
-              />
-              <Line
-                type="monotone" dataKey="count" stroke="#818cf8"
-                strokeWidth={2.5} dot={{ fill: '#818cf8', r: 4 }} name="Autos"
-              />
+              <Tooltip contentStyle={{ backgroundColor: CHART_THEME.tooltip.bg, border: `1px solid ${CHART_THEME.tooltip.border}`, borderRadius: 8, color: '#f1f5f9' }} itemStyle={{ color: '#f1f5f9' }} labelStyle={{ color: '#94a3b8' }} />
+              <Line type="monotone" dataKey="count" stroke="#818cf8" strokeWidth={2.5} dot={{ fill: '#818cf8', r: 4 }} name="Autos" />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
       </div>
 
-      {/* Tariff config */}
+      {/* Tariff config — each field editable separately */}
       {tariff && (
-        <div className="card p-5 space-y-4">
+        <div className="card p-5 space-y-5">
           <div className="flex items-center gap-2 text-slate-300 font-semibold">
             <Settings className="w-4 h-4 text-slate-500" />
             Configuración de tarifas
           </div>
-          <div className="grid grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Tarifa / hora</p>
-              <p className="text-white font-bold text-lg">{formatCurrency(tariff.rate_per_hour)}</p>
-            </div>
-            <div>
-              <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Mínimo</p>
-              <p className="text-white font-bold text-lg">{formatCurrency(tariff.minimum_charge)}</p>
-            </div>
-            <div>
-              <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Período de gracia</p>
-              <p className="text-white font-bold text-lg">{tariff.grace_period_minutes} min</p>
-            </div>
-          </div>
-          <form onSubmit={saveTariff} className="flex flex-col gap-2 pt-1">
-            <div className="flex gap-2">
+
+          {/* Tarifa / hora */}
+          <div className="space-y-2">
+            <p className="text-slate-500 text-xs uppercase tracking-wider">Tarifa / hora</p>
+            <p className="text-white font-bold text-lg">{formatCurrency(tariff.rate_per_hour)}</p>
+            <form onSubmit={saveRate} className="flex gap-2">
               <div className="flex flex-col gap-1 max-w-xs w-full">
                 <input
-                  type="text"
-                  inputMode="decimal"
-                  value={newRate}
+                  type="text" inputMode="decimal" value={newRate}
                   onChange={(e) => { setNewRate(e.target.value); setRateError('') }}
-                  onBlur={() => {
-                    const trimmed = newRate.trim()
-                    if (trimmed && (isNaN(parseFloat(trimmed)) || parseFloat(trimmed) <= 0)) {
-                      setRateError('Ingresá un valor numérico mayor a 0')
-                    }
-                  }}
                   placeholder="Nueva tarifa/hora (ARS)"
-                  className={`input w-full ${rateError ? 'border-red-500/60 focus:border-red-500' : ''}`}
-                  disabled={saving}
+                  className={`input w-full ${rateError ? 'border-red-500/60' : ''}`}
+                  disabled={savingField !== null}
                 />
-                {rateError && (
-                  <p className="text-red-400 text-xs">{rateError}</p>
-                )}
+                {rateError && <p className="text-red-400 text-xs">{rateError}</p>}
               </div>
-              <button type="submit" disabled={saving} className="btn-primary shrink-0 self-start">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
-                Actualizar
+              <button type="submit" disabled={savingField !== null} className="btn-primary shrink-0 self-start">
+                {savingField === 'rate' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
+                Guardar
               </button>
-            </div>
-          </form>
+            </form>
+          </div>
+
+          <div className="border-t border-slate-800" />
+
+          {/* Mínimo */}
+          <div className="space-y-2">
+            <p className="text-slate-500 text-xs uppercase tracking-wider">Cargo mínimo</p>
+            <p className="text-white font-bold text-lg">{formatCurrency(tariff.minimum_charge)}</p>
+            <form onSubmit={saveMin} className="flex gap-2">
+              <div className="flex flex-col gap-1 max-w-xs w-full">
+                <input
+                  type="text" inputMode="decimal" value={newMin}
+                  onChange={(e) => { setNewMin(e.target.value); setMinError('') }}
+                  placeholder="Nuevo mínimo (ARS)"
+                  className={`input w-full ${minError ? 'border-red-500/60' : ''}`}
+                  disabled={savingField !== null}
+                />
+                {minError && <p className="text-red-400 text-xs">{minError}</p>}
+              </div>
+              <button type="submit" disabled={savingField !== null} className="btn-primary shrink-0 self-start">
+                {savingField === 'min' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
+                Guardar
+              </button>
+            </form>
+          </div>
+
+          <div className="border-t border-slate-800" />
+
+          {/* Período de gracia */}
+          <div className="space-y-2">
+            <p className="text-slate-500 text-xs uppercase tracking-wider">Período de gracia</p>
+            <p className="text-white font-bold text-lg">{tariff.grace_period_minutes} min</p>
+            <form onSubmit={saveGrace} className="flex gap-2">
+              <div className="flex flex-col gap-1 max-w-xs w-full">
+                <input
+                  type="text" inputMode="numeric" value={newGrace}
+                  onChange={(e) => { setNewGrace(e.target.value); setGraceError('') }}
+                  placeholder="Nuevo período de gracia (min)"
+                  className={`input w-full ${graceError ? 'border-red-500/60' : ''}`}
+                  disabled={savingField !== null}
+                />
+                {graceError && <p className="text-red-400 text-xs">{graceError}</p>}
+              </div>
+              <button type="submit" disabled={savingField !== null} className="btn-primary shrink-0 self-start">
+                {savingField === 'grace' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
+                Guardar
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
@@ -384,14 +388,9 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
               </div>
             </div>
             <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmRate(null)} className="btn-ghost text-sm">Cancelar</button>
               <button
-                onClick={() => setConfirmRate(null)}
-                className="btn-ghost text-sm"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => doSave(confirmRate)}
+                onClick={() => doSaveField({ rate_per_hour: confirmRate }, 'rate')}
                 className="btn-primary text-sm bg-amber-600 hover:bg-amber-500 border-amber-500/40"
               >
                 Confirmar igual
@@ -408,13 +407,25 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
    Tab: Finanzas
 ───────────────────────────────────────────────────────────── */
 function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
-  const [kpi, setKpi] = useState<FinanceKPI | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [granularity, setGranularity] = useState<Granularity>(() =>
+    (sessionStorage.getItem('financeGranularity') as Granularity) ?? 'monthly'
+  )
+  const [kpi, setKpi]               = useState<FinanceKPI | null>(null)
+  const [rollup, setRollup]         = useState<RollupKPI | null>(null)
+  const [yearlyTotal, setYearlyTotal] = useState<number>(0)
+  const [loading, setLoading]       = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (gran: Granularity) => {
     try {
-      setKpi(await getFinanceKPI())
+      const [k, r, y] = await Promise.all([
+        getFinanceKPI(),
+        getRollupKPI(gran),
+        gran !== 'yearly' ? getRollupKPI('yearly') : Promise.resolve(null),
+      ])
+      setKpi(k)
+      setRollup(r)
+      setYearlyTotal(gran === 'yearly' ? r.total_revenue : (y?.total_revenue ?? 0))
       setLastRefresh(new Date())
     } catch (e) {
       toast('error', (e as Error).message)
@@ -424,115 +435,103 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }, [toast])
 
   useEffect(() => {
-    load()
-    const id = setInterval(load, 30000)
+    load(granularity)
+    const id = setInterval(() => load(granularity), 30000)
     return () => clearInterval(id)
-  }, [load])
+  }, [load, granularity])
+
+  const switchGran = (g: Granularity) => {
+    sessionStorage.setItem('financeGranularity', g)
+    setGranularity(g)
+  }
 
   if (loading) return <LoadingScreen />
 
-  const pieData = (kpi?.por_metodo ?? []).map((m) => ({
-    name: m.method === 'CASH' ? 'Efectivo' : m.method === 'SIMULATED' ? 'Simulado' : 'MercadoPago',
-    value: m.amount,
-    color: METHOD_COLORS[m.method] ?? '#64748b',
-  }))
+  const pieData = (kpi?.por_metodo ?? [])
+    .filter((m) => m.method !== 'SIMULATED')
+    .map((m) => ({
+      name: m.method === 'CASH' ? 'Efectivo' : 'MercadoPago',
+      value: m.amount,
+      color: METHOD_COLORS[m.method] ?? '#64748b',
+    }))
+
+  const periodLabels: Record<Granularity, string> = {
+    daily: 'Últimos 30 días',
+    monthly: 'Últimos 12 meses',
+    yearly: 'Histórico',
+  }
+
+  const chartBarSize = granularity === 'yearly' ? 40 : granularity === 'monthly' ? 14 : 12
+  const xInterval    = granularity === 'daily' ? 4 : 0
+
+  const revenueData = fillPeriodGaps(rollup?.revenue_by_period ?? [], granularity)
 
   return (
     <div className="space-y-6">
-      <AdminHeader
-        icon={<DollarSign className="w-5 h-5" />}
-        title="Finanzas"
-        lastRefresh={lastRefresh}
-        onRefresh={load}
-      />
+      {/* Header row with granularity selector */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <AdminHeader
+          icon={<DollarSign className="w-5 h-5" />}
+          title="Finanzas"
+          lastRefresh={lastRefresh}
+          onRefresh={() => load(granularity)}
+        />
+        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
+          {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
+            <button
+              key={g}
+              onClick={() => switchGran(g)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g
+                ? 'bg-purple-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {GRAN_LABELS[g]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Period badge */}
+      <div>
+        <span className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-full text-xs font-medium text-slate-400">
+          {periodLabels[granularity]}
+        </span>
+      </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          icon={<DollarSign className="w-5 h-5" />}
-          label="Ingresos hoy"
-          value={formatCurrency(kpi?.ingresos_hoy ?? 0)}
-          color="emerald"
-        />
-        <KpiCard
-          icon={<TrendingUp className="w-5 h-5" />}
-          label="Ingresos del mes"
-          value={formatCurrency(kpi?.ingresos_mes ?? 0)}
-          color="blue"
-        />
-        <KpiCard
-          icon={<CreditCard className="w-5 h-5" />}
-          label="Ticket promedio"
-          value={formatCurrency(kpi?.ticket_promedio ?? 0)}
-          color="purple"
-        />
-        <KpiCard
-          icon={<Users className="w-5 h-5" />}
-          label="Pendiente de cobro"
-          value={formatCurrency(kpi?.pendiente ?? 0)}
-          color="amber"
-        />
+        <KpiCard icon={<DollarSign className="w-5 h-5" />} label="Ingresos hoy" value={formatCurrency(kpi?.ingresos_hoy ?? 0)} color="emerald" />
+        <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Ingresos del mes" value={formatCurrency(kpi?.ingresos_mes ?? 0)} color="blue" />
+        <KpiCard icon={<CreditCard className="w-5 h-5" />} label="Ticket promedio" value={formatCurrency(kpi?.ticket_promedio ?? 0)} color="purple" />
+        <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Total anual" value={formatCurrency(yearlyTotal)} color="amber" />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <ChartCard title="Ingresos por día (últimos 7 días)">
+        <ChartCard title={`Ingresos por período (${GRAN_LABELS[granularity].toLowerCase()})`}>
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={kpi?.ingresos_por_dia ?? []} barSize={20}>
+            <BarChart data={revenueData} barSize={chartBarSize}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
-              <XAxis dataKey="date" stroke={CHART_THEME.axis} tick={{ fill: CHART_THEME.text, fontSize: 11 }} />
-              <YAxis
-                stroke={CHART_THEME.axis}
-                tick={{ fill: CHART_THEME.text, fontSize: 11 }}
-                tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: CHART_THEME.tooltip.bg,
-                  border: `1px solid ${CHART_THEME.tooltip.border}`,
-                  borderRadius: 8,
-                  color: '#f1f5f9',
-                }}
-                formatter={(v: number) => [formatCurrency(v), 'Ingresos']}
-              />
-              <Bar dataKey="amount" fill="#22c55e" radius={[4, 4, 0, 0]} name="Ingresos" />
+              <XAxis dataKey="label" stroke={CHART_THEME.axis} tick={{ fill: CHART_THEME.text, fontSize: 11 }} interval={xInterval} />
+              <YAxis stroke={CHART_THEME.axis} tick={{ fill: CHART_THEME.text, fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`} />
+              <Tooltip contentStyle={{ backgroundColor: CHART_THEME.tooltip.bg, border: `1px solid ${CHART_THEME.tooltip.border}`, borderRadius: 8, color: '#f1f5f9' }} itemStyle={{ color: '#f1f5f9' }} labelStyle={{ color: '#94a3b8' }} formatter={(v: number) => [formatCurrency(v), 'Ingresos']} labelFormatter={(l) => `Período: ${l}`} />
+              <Bar dataKey="amount" fill="#22c55e" radius={[3, 3, 0, 0]} name="Ingresos" />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
 
         <ChartCard title="Distribución por método de pago">
           {pieData.length === 0 ? (
-            <div className="h-60 flex items-center justify-center text-slate-600 text-sm">
-              Sin datos de pagos registrados
-            </div>
+            <div className="h-60 flex items-center justify-center text-slate-600 text-sm">Sin datos de pagos registrados</div>
           ) : (
             <ResponsiveContainer width="100%" height={240}>
               <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={65}
-                  outerRadius={100}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {pieData.map((entry, i) => (
-                    <Cell key={i} fill={entry.color} stroke="transparent" />
-                  ))}
+                <Pie data={pieData} cx="50%" cy="50%" innerRadius={65} outerRadius={100} paddingAngle={3} dataKey="value">
+                  {pieData.map((entry, i) => <Cell key={i} fill={entry.color} stroke="transparent" />)}
                 </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: CHART_THEME.tooltip.bg,
-                    border: `1px solid ${CHART_THEME.tooltip.border}`,
-                    borderRadius: 8,
-                    color: '#f1f5f9',
-                  }}
-                  formatter={(v: number) => [formatCurrency(v)]}
-                />
-                <Legend
-                  formatter={(v) => <span style={{ color: '#94a3b8', fontSize: 12 }}>{v}</span>}
-                />
+                <Tooltip contentStyle={{ backgroundColor: CHART_THEME.tooltip.bg, border: `1px solid ${CHART_THEME.tooltip.border}`, borderRadius: 8, color: '#f1f5f9' }} itemStyle={{ color: '#f1f5f9' }} labelStyle={{ color: '#94a3b8' }} formatter={(v: number) => [formatCurrency(v)]} />
+                <Legend formatter={(v) => <span style={{ color: '#94a3b8', fontSize: 12 }}>{v}</span>} />
               </PieChart>
             </ResponsiveContainer>
           )}
@@ -729,14 +728,8 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     setGranularity(g)
   }
 
-  const staysData = fillPeriodGaps(kpi?.stays_by_period ?? [], granularity)
+  const staysData   = fillPeriodGaps(kpi?.stays_by_period ?? [], granularity)
   const revenueData = fillPeriodGaps(kpi?.revenue_by_period ?? [], granularity)
-
-  const pieData = (kpi?.by_method ?? []).map((m) => ({
-    name: m.method === 'CASH' ? 'Efectivo' : m.method === 'SIMULATED' ? 'Simulado' : 'MercadoPago',
-    value: m.amount,
-    color: METHOD_COLORS[m.method] ?? '#64748b',
-  }))
 
   const xInterval = granularity === 'daily' ? 4 : 0
 
@@ -783,37 +776,11 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
       {loading ? <LoadingScreen /> : (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            <KpiCard
-              icon={<Car className="w-5 h-5" />}
-              label="Total estadías"
-              value={kpi?.total_stays ?? 0}
-              color="blue"
-            />
-            <KpiCard
-              icon={<Clock className="w-5 h-5" />}
-              label="Duración promedio"
-              value={formatDuration(kpi?.avg_duration_min ?? 0)}
-              color="purple"
-            />
-            <KpiCard
-              icon={<TrendingUp className="w-5 h-5" />}
-              label="Ingresos totales"
-              value={formatCurrency(kpi?.total_revenue ?? 0)}
-              color="emerald"
-            />
-            <KpiCard
-              icon={<CreditCard className="w-5 h-5" />}
-              label="Ticket promedio"
-              value={formatCurrency(kpi?.avg_ticket ?? 0)}
-              color="amber"
-            />
-            <KpiCard
-              icon={<Users className="w-5 h-5" />}
-              label="Pendiente"
-              value={formatCurrency(kpi?.pending ?? 0)}
-              color="red"
-            />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard icon={<Car className="w-5 h-5" />} label="Total estadías" value={kpi?.total_stays ?? 0} color="blue" />
+            <KpiCard icon={<Clock className="w-5 h-5" />} label="Duración promedio" value={formatDuration(kpi?.avg_duration_min ?? 0)} color="purple" />
+            <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Ingresos totales" value={formatCurrency(kpi?.total_revenue ?? 0)} color="emerald" />
+            <KpiCard icon={<CreditCard className="w-5 h-5" />} label="Ticket promedio" value={formatCurrency(kpi?.avg_ticket ?? 0)} color="amber" />
           </div>
 
           {/* Charts */}
@@ -830,12 +797,9 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                   />
                   <YAxis stroke={CHART_THEME.axis} tick={{ fill: CHART_THEME.text, fontSize: 11 }} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: CHART_THEME.tooltip.bg,
-                      border: `1px solid ${CHART_THEME.tooltip.border}`,
-                      borderRadius: 8,
-                      color: '#f1f5f9',
-                    }}
+                    contentStyle={{ backgroundColor: CHART_THEME.tooltip.bg, border: `1px solid ${CHART_THEME.tooltip.border}`, borderRadius: 8, color: '#f1f5f9' }}
+                    itemStyle={{ color: '#f1f5f9' }}
+                    labelStyle={{ color: '#94a3b8' }}
                     labelFormatter={(l) => `Período: ${l}`}
                   />
                   <Bar dataKey="count" fill="#3b82f6" radius={[3, 3, 0, 0]} name="Estadías" />
@@ -859,12 +823,9 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                     tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
                   />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: CHART_THEME.tooltip.bg,
-                      border: `1px solid ${CHART_THEME.tooltip.border}`,
-                      borderRadius: 8,
-                      color: '#f1f5f9',
-                    }}
+                    contentStyle={{ backgroundColor: CHART_THEME.tooltip.bg, border: `1px solid ${CHART_THEME.tooltip.border}`, borderRadius: 8, color: '#f1f5f9' }}
+                    itemStyle={{ color: '#f1f5f9' }}
+                    labelStyle={{ color: '#94a3b8' }}
                     formatter={(v: number) => [formatCurrency(v), 'Ingresos']}
                     labelFormatter={(l) => `Período: ${l}`}
                   />
@@ -874,40 +835,6 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             </ChartCard>
           </div>
 
-          {/* Payment method breakdown */}
-          <ChartCard title="Distribución por método de pago (período)">
-            {pieData.length === 0 ? (
-              <div className="h-60 flex items-center justify-center text-slate-600 text-sm">
-                Sin datos de pagos en el período
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%" cy="50%"
-                    innerRadius={65} outerRadius={100}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {pieData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} stroke="transparent" />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: CHART_THEME.tooltip.bg,
-                      border: `1px solid ${CHART_THEME.tooltip.border}`,
-                      borderRadius: 8,
-                      color: '#f1f5f9',
-                    }}
-                    formatter={(v: number) => [formatCurrency(v)]}
-                  />
-                  <Legend formatter={(v) => <span style={{ color: '#94a3b8', fontSize: 12 }}>{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </ChartCard>
         </>
       )}
     </div>
@@ -997,8 +924,9 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   const clearSearch = () => { setQuery(''); setLookupResult(null) }
 
-  const [cashModal, setCashModal] = useState<{ stayId: string; amount: number } | null>(null)
-  const [paying, setPaying]       = useState(false)
+  const [cashModal, setCashModal]   = useState<{ stayId: string; amount: number } | null>(null)
+  const [mpModal, setMpModal]       = useState<{ stayId: string; amount: number } | null>(null)
+  const [paying, setPaying]         = useState(false)
 
   const handleCash = async () => {
     if (!cashModal) return
@@ -1016,23 +944,8 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     }
   }
 
-  const handleSimulate = async (stayId: string) => {
-    setPaying(true)
-    try {
-      await simulatePayment(stayId)
-      toast('success', 'Pago simulado aprobado')
-      clearSearch()
-      loadStays()
-    } catch (e) {
-      toast('error', (e as Error).message)
-    } finally {
-      setPaying(false)
-    }
-  }
-
-  const openCashModal = (stayId: string, amount: number) => {
-    setCashModal({ stayId, amount })
-  }
+  const openCashModal = (stayId: string, amount: number) => setCashModal({ stayId, amount })
+  const openMpModal   = (stayId: string, amount: number) => setMpModal({ stayId, amount })
 
   return (
     <div className="space-y-6">
@@ -1086,6 +999,9 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             {lookupResult.stay.exit_at && (
               <InfoRow label="Salida" value={formatDateTime(lookupResult.stay.exit_at)} />
             )}
+            {(lookupResult.stay.status === 'ACTIVE' || lookupResult.stay.status === 'PAYMENT_PENDING') && (
+              <InfoRow label="Monto actual" value={formatCurrency(computeLiveAmount(lookupResult.stay.entry_at, tariff))} />
+            )}
             {lookupResult.stay.status === 'CLOSED' && (
               <InfoRow label="Monto cobrado" value={formatCurrency(lookupResult.stay.amount_paid ?? 0)} />
             )}
@@ -1094,7 +1010,7 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           {(lookupResult.stay.status === 'ACTIVE' || lookupResult.stay.status === 'PAYMENT_PENDING') && (
             <div className="flex gap-2 pt-1">
               <button
-                onClick={() => openCashModal(lookupResult.stay.id, lookupResult.amount_expected)}
+                onClick={() => openCashModal(lookupResult.stay.id, computeLiveAmount(lookupResult.stay.entry_at, tariff))}
                 className="btn-success"
                 disabled={paying}
               >
@@ -1102,12 +1018,12 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                 Cobrar efectivo
               </button>
               <button
-                onClick={() => handleSimulate(lookupResult.stay.id)}
+                onClick={() => openMpModal(lookupResult.stay.id, computeLiveAmount(lookupResult.stay.entry_at, tariff))}
                 className="btn-primary"
                 disabled={paying}
               >
-                {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-                Pago simulado
+                <Activity className="w-4 h-4" />
+                MercadoPago
               </button>
             </div>
           )}
@@ -1192,12 +1108,12 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                               Efectivo
                             </button>
                             <button
-                              onClick={() => handleSimulate(s.id)}
+                              onClick={() => openMpModal(s.id, liveAmount)}
                               className="btn-primary py-1 px-2 text-xs"
                               disabled={paying}
                             >
                               <Activity className="w-3.5 h-3.5" />
-                              Simular
+                              MercadoPago
                             </button>
                           </div>
                         </td>
@@ -1225,6 +1141,137 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           </div>
         </StaysModal>
       )}
+
+      {/* MercadoPago modal */}
+      {mpModal && (
+        <MPPaymentModal
+          stayId={mpModal.stayId}
+          amount={mpModal.amount}
+          onClose={() => setMpModal(null)}
+          onPaid={() => { setMpModal(null); clearSearch(); loadStays() }}
+          toast={toast}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────
+   MercadoPago QR payment modal
+───────────────────────────────────────────────────────────── */
+function MPPaymentModal({
+  stayId, amount, onClose, onPaid, toast,
+}: {
+  stayId: string
+  amount: number
+  onClose: () => void
+  onPaid: () => void
+  toast: ReturnType<typeof useToast>
+}) {
+  type Phase = 'loading' | 'qr' | 'polling' | 'approved' | 'rejected' | 'error'
+  const [phase, setPhase] = useState<Phase>('loading')
+  const [pref, setPref]   = useState<MPPreferenceResponse | null>(null)
+  const pollRef            = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    createMPPreference(stayId)
+      .then((p) => { setPref(p); setPhase('qr') })
+      .catch((e) => { toast('error', (e as Error).message); setPhase('error') })
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [stayId, toast])
+
+  const startPolling = () => {
+    setPhase('polling')
+    pollRef.current = setInterval(async () => {
+      try {
+        const s = await checkMPPaymentStatus(stayId)
+        if (s.status === 'approved') {
+          clearInterval(pollRef.current!)
+          setPhase('approved')
+          setTimeout(onPaid, 1500)
+        } else if (s.status === 'rejected') {
+          clearInterval(pollRef.current!)
+          setPhase('rejected')
+        }
+      } catch { /* keep polling */ }
+    }, 5000)
+  }
+
+  const overlayRef = useRef<HTMLDivElement>(null)
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === overlayRef.current && onClose()}
+    >
+      <div className="bg-slate-900 border border-slate-700/60 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-slide-up space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-white text-base">Pago MercadoPago</h3>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-300"><X className="w-5 h-5" /></button>
+        </div>
+
+        <p className="text-slate-400 text-sm">Monto: <span className="text-white font-bold">{formatCurrency(amount)}</span></p>
+
+        {phase === 'loading' && (
+          <div className="flex items-center justify-center h-48">
+            <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+          </div>
+        )}
+
+        {(phase === 'qr' || phase === 'polling') && pref && (
+          <div className="space-y-3">
+            {pref.qr_data && (
+              <div className="bg-white p-3 rounded-xl flex items-center justify-center">
+                <QRCode value={pref.qr_data} size={180} />
+              </div>
+            )}
+            <p className="text-xs text-slate-500 text-center">
+              {phase === 'polling' ? 'Esperando confirmación de pago…' : 'Escaneá con la app de MercadoPago'}
+            </p>
+            {pref.checkout_url && (
+              <a href={pref.checkout_url} target="_blank" rel="noreferrer"
+                className="btn-primary w-full justify-center text-sm">
+                Abrir en MercadoPago
+              </a>
+            )}
+            {phase === 'qr' && (
+              <button onClick={startPolling} className="btn-ghost w-full text-sm text-slate-400">
+                Ya pagué — verificar
+              </button>
+            )}
+            {phase === 'polling' && (
+              <div className="flex items-center justify-center gap-2 text-amber-400 text-xs">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Verificando pago…
+              </div>
+            )}
+          </div>
+        )}
+
+        {phase === 'approved' && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <div className="w-14 h-14 rounded-full bg-emerald-500/20 flex items-center justify-center">
+              <Activity className="w-7 h-7 text-emerald-400" />
+            </div>
+            <p className="text-emerald-400 font-bold">¡Pago aprobado!</p>
+          </div>
+        )}
+
+        {phase === 'rejected' && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <p className="text-red-400 font-bold">Pago rechazado</p>
+            <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
+          </div>
+        )}
+
+        {phase === 'error' && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <p className="text-red-400 text-sm">No se pudo iniciar el pago</p>
+            <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
