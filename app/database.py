@@ -33,6 +33,17 @@ def get_setting(db: Session, key: str, default: str = "") -> str:
     return row.value if row else default
 
 
+def set_setting(db: Session, key: str, value: str) -> None:
+    """Upsert a SystemSetting value in the DB."""
+    from app.models import SystemSetting
+    row = db.execute(select(SystemSetting).where(SystemSetting.key == key)).scalar_one_or_none()
+    if row:
+        row.value = value
+    else:
+        db.add(SystemSetting(key=key, value=value))
+    db.commit()
+
+
 def init_db():
     """Create all tables and apply lightweight migrations."""
     from app import models  # noqa: F401 — ensure models are registered

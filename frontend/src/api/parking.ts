@@ -69,3 +69,32 @@ export function exitPaySimulate(stay_id: string): Promise<ExitPayResponse> {
     noAuth: true,
   })
 }
+
+export interface MPPreferenceResponse {
+  qr_data: string        // encode as QR → opens natively in MP app
+  checkout_url: string   // browser fallback
+  amount: number
+  payment_id: string
+}
+
+export interface MPStatusResponse {
+  status: 'approved' | 'pending' | 'rejected' | 'not_found'
+  stay_id: string
+  amount_paid?: number
+  exit_at?: string
+  mp_payment_id?: string
+}
+
+export function createMPPreference(stay_id: string): Promise<MPPreferenceResponse> {
+  return apiFetch<MPPreferenceResponse>('/api/public/exit/mp/create', {
+    method: 'POST',
+    body: { stay_id },
+    noAuth: true,
+  })
+}
+
+export function checkMPPaymentStatus(stay_id: string): Promise<MPStatusResponse> {
+  return apiFetch<MPStatusResponse>(`/api/public/exit/mp/status/${stay_id}`, {
+    noAuth: true,
+  })
+}

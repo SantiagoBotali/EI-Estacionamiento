@@ -120,6 +120,22 @@ async def exit_pay_simulate(body: ExitPayRequest, db: Session = Depends(get_db))
     }
 
 
+@router.post("/api/public/exit/mp/create")
+async def exit_mp_create(body: ExitPayRequest, db: Session = Depends(get_db)):
+    """Create a MercadoPago preference and return the checkout URL + amount."""
+    from app.services.payment_service import create_mp_preference
+    result = create_mp_preference(db, body.stay_id)
+    return result
+
+
+@router.get("/api/public/exit/mp/status/{stay_id}")
+async def exit_mp_status(stay_id: str, db: Session = Depends(get_db)):
+    """Poll MercadoPago to check if a payment was approved for this stay."""
+    from app.services.payment_service import check_mp_payment
+    result = check_mp_payment(db, stay_id)
+    return result
+
+
 @router.get("/api/public/parking/stream")
 async def parking_stream(request: Request):
     headers = {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import QRCode from 'react-qr-code'
 import {
   AlertCircle,
   ArrowLeft,
@@ -8,17 +9,20 @@ import {
   Loader2,
   QrCode,
   Search,
+  XCircle,
 } from 'lucide-react'
 import {
   exitLookup,
   exitPayCash,
-  exitPaySimulate,
+  createMPPreference,
+  checkMPPaymentStatus,
   type ExitLookupResponse,
   type ExitPayResponse,
+  type MPPreferenceResponse,
 } from '../../api/parking'
 import { formatCurrency, formatDateTime, formatDuration } from '../../lib/utils'
 
-type ExitState = 'idle' | 'loading' | 'found' | 'qr' | 'paying' | 'success'
+type ExitState = 'idle' | 'loading' | 'found' | 'qr_loading' | 'qr' | 'polling' | 'paying' | 'success' | 'rejected'
 
 function elapsedMinutes(entryAt: string): number {
   return (Date.now() - new Date(entryAt).getTime()) / 60000
@@ -28,10 +32,17 @@ export function ExitPage() {
   const [phase, setPhase] = useState<ExitState>('idle')
   const [query, setQuery] = useState('')
   const [lookupData, setLookupData] = useState<ExitLookupResponse | null>(null)
+  const [mpPref, setMpPref] = useState<MPPreferenceResponse | null>(null)
   const [payResult, setPayResult] = useState<ExitPayResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [countdown, setCountdown] = useState(10)
   const inputRef = useRef<HTMLInputElement>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  /* Stop polling on unmount */
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [])
 
   /* Auto-countdown after success */
   useEffect(() => {
@@ -47,9 +58,11 @@ export function ExitPage() {
   }, [phase])
 
   const reset = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
     setPhase('idle')
     setQuery('')
     setLookupData(null)
+    setMpPref(null)
     setPayResult(null)
     setError(null)
     setTimeout(() => inputRef.current?.focus(), 100)
@@ -83,17 +96,50 @@ export function ExitPage() {
     }
   }
 
-  const handleConfirmQR = async () => {
+  const handleOpenMP = async () => {
     if (!lookupData) return
     setError(null)
-    setPhase('paying')
+    setPhase('qr_loading')
     try {
-      const res = await exitPaySimulate(lookupData.stay_id)
-      setPayResult(res)
-      setPhase('success')
+      const pref = await createMPPreference(lookupData.stay_id)
+      setMpPref(pref)
+      setPhase('qr')
+      startPolling(lookupData.stay_id)
     } catch (e) {
       setError((e as Error).message)
-      setPhase('qr')
+      setPhase('found')
+    }
+  }
+
+  const startPolling = (stay_id: string) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const status = await checkMPPaymentStatus(stay_id)
+        if (status.status === 'approved') {
+          clearInterval(pollRef.current!)
+          pollRef.current = null
+          setPayResult({
+            stay_id: status.stay_id,
+            amount_paid: status.amount_paid ?? 0,
+            payment_method: 'MERCADOPAGO',
+            exit_at: status.exit_at ?? new Date().toISOString(),
+          })
+          setPhase('success')
+        } else if (status.status === 'rejected') {
+          clearInterval(pollRef.current!)
+          pollRef.current = null
+          setPhase('rejected')
+        }
+      } catch {
+        // network error during poll — silently retry
+      }
+    }, 3000)
+  }
+
+  const handleOpenCheckout = () => {
+    if (mpPref?.checkout_url) {
+      window.open(mpPref.checkout_url, '_blank', 'noopener,noreferrer')
     }
   }
 
@@ -159,13 +205,15 @@ export function ExitPage() {
       )}
 
       {/* ── LOADING ── */}
-      {phase === 'loading' && (
+      {(phase === 'loading' || phase === 'qr_loading') && (
         <div className="text-center animate-fade-in">
           <div className="w-24 h-24 rounded-full bg-blue-600/15 border-2 border-blue-500/30
                           flex items-center justify-center mx-auto mb-6">
             <Loader2 className="w-12 h-12 text-blue-400 animate-spin" />
           </div>
-          <p className="text-slate-300 font-medium">Buscando ticket…</p>
+          <p className="text-slate-300 font-medium">
+            {phase === 'qr_loading' ? 'Generando QR de pago…' : 'Buscando ticket…'}
+          </p>
         </div>
       )}
 
@@ -228,7 +276,7 @@ export function ExitPage() {
                   Pagar en Efectivo
                 </button>
                 <button
-                  onClick={() => setPhase('qr')}
+                  onClick={handleOpenMP}
                   className="w-full flex items-center justify-center gap-3
                              bg-sky-700 hover:bg-sky-600
                              text-white font-semibold py-4 rounded-xl transition-colors"
@@ -249,77 +297,75 @@ export function ExitPage() {
         </div>
       )}
 
-      {/* ── QR ── */}
-      {phase === 'qr' && lookupData && (
+      {/* ── QR (real MP checkout) ── */}
+      {phase === 'qr' && lookupData && mpPref && (
         <div className="w-full max-w-sm animate-slide-up">
           <div className="bg-slate-900/80 backdrop-blur border border-slate-700/60 rounded-2xl overflow-hidden shadow-2xl">
             <div className="bg-gradient-to-r from-sky-900/80 to-sky-800/60
                             border-b border-sky-700/50 px-6 py-4 text-center">
               <QrCode className="w-8 h-8 text-sky-400 mx-auto mb-1" />
               <p className="text-white font-semibold">Mercado Pago</p>
-              <p className="text-sky-300/70 text-sm">Escanee el código con la app</p>
+              <p className="text-sky-300/70 text-sm">Escanee el código con la app o toque para abrir</p>
             </div>
 
             <div className="px-6 py-5 space-y-4">
-              {/* Placeholder QR */}
-              <div className="bg-white rounded-2xl p-5 flex items-center justify-center">
-                <svg
-                  viewBox="0 0 110 110"
-                  className="w-48 h-48"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  {/* Top-left finder */}
-                  <rect x="8"  y="8"  width="30" height="30" rx="3" fill="none" stroke="#111" strokeWidth="3"/>
-                  <rect x="15" y="15" width="16" height="16" rx="1" fill="#111"/>
-                  {/* Top-right finder */}
-                  <rect x="72" y="8"  width="30" height="30" rx="3" fill="none" stroke="#111" strokeWidth="3"/>
-                  <rect x="79" y="15" width="16" height="16" rx="1" fill="#111"/>
-                  {/* Bottom-left finder */}
-                  <rect x="8"  y="72" width="30" height="30" rx="3" fill="none" stroke="#111" strokeWidth="3"/>
-                  <rect x="15" y="79" width="16" height="16" rx="1" fill="#111"/>
-                  {/* Timing / data modules */}
-                  {[
-                    [46,8],[54,8],[62,8],[46,15],[62,15],[46,22],[54,22],
-                    [46,40],[54,40],[62,40],[54,46],[46,54],[62,54],
-                    [46,62],[54,62],[62,62],[46,70],[62,70],
-                    [72,46],[79,46],[86,46],[93,46],[72,54],[86,54],
-                    [72,62],[79,62],[93,62],[72,70],[86,70],[93,70],
-                    [46,79],[54,79],[62,79],[46,86],[62,86],[54,93],[62,93],
-                  ].map(([x, y], i) => (
-                    <rect key={i} x={x} y={y} width="6" height="6" fill="#111" />
-                  ))}
-                  {/* MP label */}
-                  <text x="55" y="107" textAnchor="middle" fontSize="5" fill="#0070f3" fontWeight="bold">
-                    Mercado Pago
-                  </text>
-                </svg>
+              {/* QR code — uses qr_data (native MP app) or checkout_url as fallback */}
+              <div
+                className="bg-white rounded-2xl p-5 flex items-center justify-center cursor-pointer
+                           hover:opacity-90 transition-opacity"
+                onClick={handleOpenCheckout}
+                title="Toca para abrir el checkout en el navegador"
+              >
+                <QRCode
+                  value={mpPref.qr_data || mpPref.checkout_url}
+                  size={192}
+                  style={{ height: 'auto', maxWidth: '100%', width: '100%' }}
+                  viewBox="0 0 256 256"
+                />
               </div>
+
+              {mpPref.qr_data ? (
+                <p className="text-center text-sky-300/70 text-xs">
+                  Escaneá con la app de Mercado Pago
+                </p>
+              ) : (
+                <p className="text-center text-amber-400/70 text-xs">
+                  Escaneá con la cámara para abrir en el navegador
+                </p>
+              )}
 
               {/* Amount */}
               <div className="bg-sky-950/50 border border-sky-800/50 rounded-xl px-5 py-3 text-center">
                 <p className="text-slate-400 text-xs uppercase tracking-widest mb-1">Monto</p>
                 <p className="text-sky-300 font-bold text-2xl">
-                  {lookupData.amount === 0 ? 'GRATIS' : formatCurrency(lookupData.amount)}
+                  {mpPref.amount === 0 ? 'GRATIS' : formatCurrency(mpPref.amount)}
                 </p>
               </div>
 
-              {error && (
-                <div className="bg-red-950/60 border border-red-700/50 text-red-300
-                                text-sm px-4 py-2 rounded-lg flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  {error}
-                </div>
-              )}
+              {/* Polling indicator */}
+              <div className="flex items-center justify-center gap-2 text-slate-500 text-xs">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Esperando confirmación de pago…
+              </div>
 
+              {/* Open in browser button (fallback) */}
+              {mpPref.checkout_url && (
+                <button
+                  onClick={handleOpenCheckout}
+                  className="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold
+                             py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+                >
+                  <QrCode className="w-4 h-4" />
+                  Abrir en navegador
+                </button>
+              )}
               <button
-                onClick={handleConfirmQR}
-                className="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold
-                           py-3 rounded-xl transition-colors"
-              >
-                Confirmar pago
-              </button>
-              <button
-                onClick={() => { setError(null); setPhase('found') }}
+                onClick={() => {
+                  if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+                  setError(null)
+                  setMpPref(null)
+                  setPhase('found')
+                }}
                 className="w-full text-slate-500 hover:text-slate-300 text-sm py-2 transition-colors"
               >
                 Volver
@@ -340,6 +386,29 @@ export function ExitPage() {
         </div>
       )}
 
+      {/* ── REJECTED ── */}
+      {phase === 'rejected' && (
+        <div className="w-full max-w-sm animate-slide-up">
+          <div className="bg-slate-900/80 backdrop-blur border border-slate-700/60 rounded-2xl overflow-hidden shadow-2xl">
+            <div className="bg-gradient-to-r from-red-900/80 to-red-800/60
+                            border-b border-red-700/50 px-6 py-5 text-center">
+              <XCircle className="w-12 h-12 text-red-400 mx-auto mb-2" />
+              <h2 className="text-white font-bold text-xl">Pago rechazado</h2>
+              <p className="text-red-300/70 text-sm mt-1">El pago fue rechazado o cancelado</p>
+            </div>
+            <div className="px-6 py-5">
+              <button
+                onClick={() => { setMpPref(null); setPhase('found') }}
+                className="w-full bg-slate-700 hover:bg-slate-600 text-white font-semibold
+                           py-3 rounded-xl transition-colors"
+              >
+                Intentar de nuevo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── SUCCESS ── */}
       {phase === 'success' && payResult && (
         <div className="w-full max-w-sm animate-slide-up">
@@ -348,7 +417,9 @@ export function ExitPage() {
                             border-b border-emerald-700/50 px-6 py-5 text-center">
               <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-2" />
               <h2 className="text-white font-bold text-xl">¡Pago exitoso!</h2>
-              <p className="text-emerald-300/70 text-sm mt-1">Puede retirar su vehículo</p>
+              <p className="text-emerald-300/70 text-sm mt-1">
+                {payResult.payment_method === 'MERCADOPAGO' ? 'Pago por Mercado Pago confirmado' : 'Puede retirar su vehículo'}
+              </p>
             </div>
 
             <div className="px-6 py-5 space-y-4">

@@ -38,5 +38,11 @@ class Settings(BaseSettings):
     # Media
     car_icon_path: str = "Media/car.png"
 
+    # MercadoPago
+    mp_access_token: str = ""
+    mp_public_key: str = ""
+    mp_sandbox: bool = True
+    mp_base_url: str = "http://localhost:8000"
+
 
 settings = Settings()

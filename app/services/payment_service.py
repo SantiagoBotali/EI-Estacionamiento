@@ -1,25 +1,29 @@
 """
-app/services/payment_service.py — Simulated and MercadoPago payment handling.
+app/services/payment_service.py — MercadoPago and cash payment handling.
 """
+import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import HTTPException, status
+import mercadopago
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import Stay, Payment, StayStatus, PaymentMethod, PaymentStatus
 
 logger = logging.getLogger(__name__)
 
 
-def simulate_payment(db: Session, stay_id: str, closed_by_id: int | None = None) -> tuple[Payment, Stay]:
-    """
-    Simulate an approved payment for a stay.
+def _sdk() -> mercadopago.SDK:
+    return mercadopago.SDK(settings.mp_access_token)
 
-    Returns:
-        (payment, updated_stay)
-    """
+
+# ─── Simulate (legacy, kept for backward compat) ─────────────────────────────
+
+def simulate_payment(db: Session, stay_id: str, closed_by_id: int | None = None) -> tuple[Payment, Stay]:
+    """Simulate an approved payment for a stay (legacy endpoint)."""
     stmt = select(Stay).where(Stay.id == stay_id)
     stay = db.execute(stmt).scalar_one_or_none()
 
@@ -59,47 +63,283 @@ def simulate_payment(db: Session, stay_id: str, closed_by_id: int | None = None)
     return payment, stay
 
 
-def process_mp_webhook(payload: dict) -> dict:
-    """
-    Process a MercadoPago webhook notification.
+# ─── MercadoPago ─────────────────────────────────────────────────────────────
 
-    TODO: Implement real MP signature validation and payment status update.
+def create_mp_preference(db: Session, stay_id: str) -> dict:
+    """
+    Create a MercadoPago QR Punto de Venta order for a stay.
+
+    Returns:
+        {
+            "qr_data": str,          # encode this as the QR image (native MP app)
+            "checkout_url": str,     # browser fallback (init_point / sandbox_init_point)
+            "amount": float,
+            "payment_id": str,
+        }
+    """
+    stmt = select(Stay).where(Stay.id == stay_id)
+    stay = db.execute(stmt).scalar_one_or_none()
+
+    if stay is None:
+        raise HTTPException(status_code=404, detail="Estadía no encontrada")
+
+    if stay.status not in (StayStatus.ACTIVE, StayStatus.PAYMENT_PENDING):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Estadía en estado {stay.status} — no se puede iniciar pago",
+        )
+
+    from app.services.tariff import calculate_price
+
+    now = datetime.now(timezone.utc)
+    amount = calculate_price(stay.entry_at, now)
+
+    # Update stay to PAYMENT_PENDING
+    stay.status = StayStatus.PAYMENT_PENDING
+    stay.amount_expected = amount
+
+    # Reuse or create a pending Payment record
+    existing = db.execute(
+        select(Payment).where(
+            Payment.stay_id == stay_id,
+            Payment.method == PaymentMethod.MERCADOPAGO,
+            Payment.status == PaymentStatus.PENDING,
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        payment = existing
+    else:
+        payment = Payment(
+            stay_id=stay.id,
+            method=PaymentMethod.MERCADOPAGO,
+            amount=amount,
+            status=PaymentStatus.PENDING,
+            external_reference=stay_id,
+        )
+        db.add(payment)
+
+    db.flush()
+
+    ticket_code = stay.ticket.ticket_code if stay.ticket else stay_id[:8].upper()
+
+    # ── 1. QR Punto de Venta — qr_data (EMV) abre nativamente en la app de MP ─
+    from app.services.mp_qr import create_qr_order
+
+    qr_data = ""
+    in_store_order_id = ""
+    try:
+        qr_result = create_qr_order(db, stay_id, amount, ticket_code)
+        qr_data = qr_result.get("qr_data", "")
+        in_store_order_id = qr_result.get("in_store_order_id", "")
+    except Exception as exc:
+        logger.warning("QR POS order failed, will use Checkout Pro only: %s", exc)
+
+    # ── 2. Checkout Pro — URL de fallback para el navegador ───────────────────
+    base_url = settings.mp_base_url.rstrip("/")
+    preference_data = {
+        "items": [
+            {
+                "id": stay_id,
+                "title": f"Estacionamiento SDG+ — {ticket_code}",
+                "quantity": 1,
+                "unit_price": float(amount) if amount > 0 else 1.0,
+                "currency_id": "ARS",
+            }
+        ],
+        "external_reference": stay_id,
+        "notification_url": f"{base_url}/api/payments/mercadopago/webhook",
+        "statement_descriptor": "ESTACIONAMIENTO SDG",
+    }
+
+    sdk = _sdk()
+    pref_result = sdk.preference().create(preference_data)
+
+    checkout_url = ""
+    preference_id = ""
+    if pref_result["status"] in (200, 201):
+        pref = pref_result["response"]
+        preference_id = pref.get("id", "")
+        init_point = pref.get("init_point", "")
+        sandbox_init_point = pref.get("sandbox_init_point", "")
+        checkout_url = sandbox_init_point if settings.mp_sandbox else init_point
+    else:
+        logger.warning("Checkout Pro preference failed: %s", pref_result)
+
+    payment.raw_data = json.dumps({
+        "preference_id": preference_id,
+        "in_store_order_id": in_store_order_id,
+    })
+
+    db.commit()
+    db.refresh(payment)
+    db.refresh(stay)
+
+    if not qr_data and not checkout_url:
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudo generar el QR ni la URL de pago. Verificá las credenciales MP.",
+        )
+
+    logger.info(
+        "MP payment initiated for stay %s — qr_data=%s checkout_url=%s amount=%.2f",
+        stay_id, bool(qr_data), bool(checkout_url), amount,
+    )
+
+    return {
+        "qr_data": qr_data,        # EMV QR → abre nativamente en app de MP
+        "checkout_url": checkout_url,   # sandbox URL → botón "Abrir en navegador"
+        "amount": amount,
+        "payment_id": payment.id,
+    }
+
+
+def check_mp_payment(db: Session, stay_id: str) -> dict:
+    """
+    Poll MercadoPago API to check if a payment for this stay was approved.
+
+    Returns:
+        {
+            "status": "approved" | "pending" | "rejected" | "not_found",
+            "stay": StayOut-compatible dict (only when approved),
+            "mp_payment_id": str | None,
+        }
+    """
+    stmt = select(Stay).where(Stay.id == stay_id)
+    stay = db.execute(stmt).scalar_one_or_none()
+
+    if stay is None:
+        raise HTTPException(status_code=404, detail="Estadía no encontrada")
+
+    # If already closed, return success immediately
+    if stay.status == StayStatus.CLOSED:
+        return {
+            "status": "approved",
+            "stay_id": stay.id,
+            "amount_paid": float(stay.amount_paid or 0),
+            "exit_at": stay.exit_at.isoformat() if stay.exit_at else None,
+        }
+
+    # Search MP payments by external_reference (= stay_id)
+    sdk = _sdk()
+    search_result = sdk.payment().search({"external_reference": stay_id})
+
+    if search_result["status"] != 200:
+        logger.warning("MP payment search failed for stay %s: %s", stay_id, search_result)
+        return {"status": "pending", "stay_id": stay_id}
+
+    payments_found = search_result["response"].get("results", [])
+
+    approved = next(
+        (p for p in payments_found if p.get("status") == "approved"),
+        None,
+    )
+
+    if not approved:
+        # Check for rejected
+        rejected = next(
+            (p for p in payments_found if p.get("status") in ("rejected", "cancelled")),
+            None,
+        )
+        if rejected:
+            return {"status": "rejected", "stay_id": stay_id}
+        return {"status": "pending", "stay_id": stay_id}
+
+    # Payment approved — close the stay
+    mp_payment_id = str(approved["id"])
+    mp_amount = float(approved.get("transaction_amount", stay.amount_expected or 0))
+    now = datetime.now(timezone.utc)
+
+    # Update or create Payment record
+    pending_payment = db.execute(
+        select(Payment).where(
+            Payment.stay_id == stay_id,
+            Payment.method == PaymentMethod.MERCADOPAGO,
+            Payment.status == PaymentStatus.PENDING,
+        )
+    ).scalar_one_or_none()
+
+    if pending_payment:
+        pending_payment.status = PaymentStatus.APPROVED
+        pending_payment.mp_payment_id = mp_payment_id
+        pending_payment.processed_at = now
+        pending_payment.amount = mp_amount
+        pending_payment.raw_data = json.dumps(approved)
+    else:
+        # Edge case: no pending record found, create one
+        new_payment = Payment(
+            stay_id=stay_id,
+            method=PaymentMethod.MERCADOPAGO,
+            amount=mp_amount,
+            status=PaymentStatus.APPROVED,
+            external_reference=stay_id,
+            mp_payment_id=mp_payment_id,
+            processed_at=now,
+            raw_data=json.dumps(approved),
+        )
+        db.add(new_payment)
+
+    stay.exit_at = now
+    stay.amount_paid = mp_amount
+    stay.payment_method = PaymentMethod.MERCADOPAGO
+    stay.status = StayStatus.CLOSED
+
+    db.commit()
+    db.refresh(stay)
+
+    from app.services.mp_qr import delete_qr_order
+    delete_qr_order(db)
+
+    logger.info(
+        "MP payment approved for stay %s — mp_payment_id=%s amount=%.2f",
+        stay_id, mp_payment_id, mp_amount,
+    )
+
+    return {
+        "status": "approved",
+        "stay_id": stay.id,
+        "amount_paid": float(stay.amount_paid or 0),
+        "exit_at": stay.exit_at.isoformat(),
+        "mp_payment_id": mp_payment_id,
+    }
+
+
+def process_mp_webhook(db: Session, payload: dict) -> dict:
+    """
+    Process a MercadoPago webhook notification (IPN / webhook v2).
     """
     logger.info("MercadoPago webhook received: %s", payload)
 
-    # TODO: Validate x-signature header from MP
-    # TODO: Fetch payment from MP API using payload["data"]["id"]
-    # TODO: Update Payment record and Stay accordingly
+    # MP sends different event types
+    topic = payload.get("topic") or payload.get("type")
+    resource_id = (
+        payload.get("id")
+        or payload.get("data", {}).get("id")
+    )
 
-    return {"received": True, "status": "logged"}
+    if topic not in ("payment", "merchant_order") or not resource_id:
+        return {"received": True, "status": "ignored", "topic": topic}
 
+    try:
+        sdk = _sdk()
+        result = sdk.payment().get(str(resource_id))
 
-# TODO: MP preference creation
-# def create_mp_preference(stay: Stay, back_url: str) -> dict:
-#     """
-#     Create a MercadoPago payment preference.
-#
-#     Requires:
-#         - mercadopago SDK: pip install mercadopago
-#         - MP_ACCESS_TOKEN in settings
-#
-#     Returns:
-#         {"init_point": str, "preference_id": str}
-#     """
-#     import mercadopago
-#     sdk = mercadopago.SDK(settings.mp_access_token)
-#     preference_data = {
-#         "items": [{
-#             "title": f"Estacionamiento {stay.ticket.ticket_code}",
-#             "quantity": 1,
-#             "unit_price": stay.amount_expected,
-#             "currency_id": "ARS",
-#         }],
-#         "back_urls": {
-#             "success": f"{back_url}/payment/success",
-#             "failure": f"{back_url}/payment/failure",
-#         },
-#         "external_reference": stay.id,
-#     }
-#     result = sdk.preference().create(preference_data)
-#     return result["response"]
+        if result["status"] != 200:
+            logger.warning("MP get payment failed for id %s: %s", resource_id, result)
+            return {"received": True, "status": "fetch_failed"}
+
+        mp_payment = result["response"]
+        external_ref = mp_payment.get("external_reference")
+
+        if not external_ref:
+            return {"received": True, "status": "no_external_reference"}
+
+        # Delegate to check_and_close logic
+        from app.database import SessionLocal
+        with SessionLocal() as webhook_db:
+            outcome = check_mp_payment(webhook_db, external_ref)
+            return {"received": True, "status": outcome["status"]}
+
+    except Exception as e:
+        logger.exception("Error processing MP webhook: %s", e)
+        return {"received": True, "status": "error", "detail": str(e)}
