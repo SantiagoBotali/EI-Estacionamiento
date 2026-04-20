@@ -34,9 +34,13 @@ def simulate_payment(db: Session, stay_id: str, closed_by_id: int | None = None)
         raise HTTPException(status_code=409, detail=f"Estadía en estado {stay.status}")
 
     from app.services.tariff import calculate_price
+    from app.database import get_setting
 
     now = datetime.now(timezone.utc)
-    amount = calculate_price(stay.entry_at, now)
+    rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
+    grace = int(get_setting(db, "grace_period_minutes", "15"))
+    amount = calculate_price(stay.entry_at, now, rate_per_hour=rate, minimum_charge=minimum, grace_period_minutes=grace)
 
     payment = Payment(
         stay_id=stay.id,
@@ -90,9 +94,13 @@ def create_mp_preference(db: Session, stay_id: str) -> dict:
         )
 
     from app.services.tariff import calculate_price
+    from app.database import get_setting
 
     now = datetime.now(timezone.utc)
-    amount = calculate_price(stay.entry_at, now)
+    rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
+    grace = int(get_setting(db, "grace_period_minutes", "15"))
+    amount = calculate_price(stay.entry_at, now, rate_per_hour=rate, minimum_charge=minimum, grace_period_minutes=grace)
 
     # Update stay to PAYMENT_PENDING
     stay.status = StayStatus.PAYMENT_PENDING
@@ -123,17 +131,22 @@ def create_mp_preference(db: Session, stay_id: str) -> dict:
 
     ticket_code = stay.ticket.ticket_code if stay.ticket else stay_id[:8].upper()
 
-    # ── 1. QR Punto de Venta — qr_data (EMV) abre nativamente en la app de MP ─
+    # ── 1. QR Punto de Venta — solo disponible con token de producción (APP_USR-)
+    #    Con token TEST- la API instore/qr no está habilitada → se omite
     from app.services.mp_qr import create_qr_order
 
+    is_test_token = settings.mp_access_token.startswith("TEST-")
     qr_data = ""
     in_store_order_id = ""
-    try:
-        qr_result = create_qr_order(db, stay_id, amount, ticket_code)
-        qr_data = qr_result.get("qr_data", "")
-        in_store_order_id = qr_result.get("in_store_order_id", "")
-    except Exception as exc:
-        logger.warning("QR POS order failed, will use Checkout Pro only: %s", exc)
+    if not is_test_token:
+        try:
+            qr_result = create_qr_order(db, stay_id, amount, ticket_code)
+            qr_data = qr_result.get("qr_data", "")
+            in_store_order_id = qr_result.get("in_store_order_id", "")
+        except Exception as exc:
+            logger.warning("QR POS order failed, will use Checkout Pro only: %s", exc)
+    else:
+        logger.info("TEST token detected — skipping QR POS, using Checkout Pro only")
 
     # ── 2. Checkout Pro — URL de fallback para el navegador ───────────────────
     base_url = settings.mp_base_url.rstrip("/")
@@ -153,18 +166,26 @@ def create_mp_preference(db: Session, stay_id: str) -> dict:
     }
 
     sdk = _sdk()
-    pref_result = sdk.preference().create(preference_data)
-
     checkout_url = ""
+    init_point_url = ""
     preference_id = ""
-    if pref_result["status"] in (200, 201):
-        pref = pref_result["response"]
-        preference_id = pref.get("id", "")
-        init_point = pref.get("init_point", "")
-        sandbox_init_point = pref.get("sandbox_init_point", "")
-        checkout_url = sandbox_init_point if settings.mp_sandbox else init_point
-    else:
-        logger.warning("Checkout Pro preference failed: %s", pref_result)
+    try:
+        pref_result = sdk.preference().create(preference_data)
+        if pref_result["status"] in (200, 201):
+            pref = pref_result["response"]
+            preference_id = pref.get("id", "")
+            init_point_url = pref.get("init_point", "")
+            sandbox_init_point = pref.get("sandbox_init_point", "")
+            checkout_url = sandbox_init_point if settings.mp_sandbox else init_point_url
+        else:
+            logger.warning("Checkout Pro preference failed: %s", pref_result)
+    except Exception as exc:
+        logger.warning("Checkout Pro request failed (red/conexión): %s", exc)
+        db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="No se pudo conectar con MercadoPago. Verificá la conexión a internet del servidor.",
+        )
 
     payment.raw_data = json.dumps({
         "preference_id": preference_id,
@@ -175,22 +196,31 @@ def create_mp_preference(db: Session, stay_id: str) -> dict:
     db.refresh(payment)
     db.refresh(stay)
 
-    if not qr_data and not checkout_url:
+    if not qr_data and not init_point_url and not checkout_url:
         raise HTTPException(
             status_code=502,
             detail="No se pudo generar el QR ni la URL de pago. Verificá las credenciales MP.",
         )
 
+    # qr_data para mostrar en el QR de la pantalla:
+    #   - Sandbox: usa sandbox_init_point → abre el browser móvil con el checkout de prueba
+    #   - Producción: usa EMV (QR POS) si está disponible, sino init_point (universal link → app MP)
+    if settings.mp_sandbox:
+        qr_for_display = qr_data or checkout_url or init_point_url
+    else:
+        qr_for_display = qr_data or init_point_url or checkout_url
+
     logger.info(
-        "MP payment initiated for stay %s — qr_data=%s checkout_url=%s amount=%.2f",
-        stay_id, bool(qr_data), bool(checkout_url), amount,
+        "MP payment initiated for stay %s — emv_qr=%s init_point=%s amount=%.2f",
+        stay_id, bool(qr_data), bool(init_point_url), amount,
     )
 
     return {
-        "qr_data": qr_data,        # EMV QR → abre nativamente en app de MP
-        "checkout_url": checkout_url,   # sandbox URL → botón "Abrir en navegador"
+        "qr_data": qr_for_display,      # EMV o init_point — siempre algo escaneable
+        "checkout_url": checkout_url,   # URL para botón "Abrir en navegador"
         "amount": amount,
         "payment_id": payment.id,
+        "is_emv": bool(qr_data),        # True = QR nativo de MP, False = URL
     }
 
 

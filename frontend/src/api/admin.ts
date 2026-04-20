@@ -46,8 +46,11 @@ export function getFinanceKPI(): Promise<FinanceKPI> {
   return apiFetch('/api/admin/kpis/finance')
 }
 
-export function getRollupKPI(granularity: 'daily' | 'monthly' | 'yearly'): Promise<RollupKPI> {
-  return apiFetch(`/api/admin/kpis/rollup?granularity=${granularity}`)
+export function getRollupKPI(granularity: 'daily' | 'monthly' | 'yearly', month?: string, year?: string): Promise<RollupKPI> {
+  const params = new URLSearchParams({ granularity })
+  if (month) params.set('month', month)
+  if (year)  params.set('year', year)
+  return apiFetch(`/api/admin/kpis/rollup?${params}`)
 }
 
 export function getTariffSettings(): Promise<TariffSettings> {

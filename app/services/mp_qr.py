@@ -51,18 +51,18 @@ def _get_or_create_store(db: Session, user_id: str) -> int:
     if store_id:
         return int(store_id)
 
-    # Create store (city must be in MP's accepted list for AR-B province)
+    # city_name must match MP's accepted list; "Buenos Aires" is always valid
     payload = {
         "name": "Estacionamiento SDG+",
         "external_id": "SDGSTORE01",
         "location": {
             "street_name": "Av. Corrientes",
             "street_number": "1234",
-            "city_name": "Avellaneda",
+            "city_name": "Buenos Aires",
             "state_name": "Buenos Aires",
-            "zip_code": "1870",
-            "latitude": -34.6637,
-            "longitude": -58.3659,
+            "zip_code": "1043",
+            "latitude": -34.6037,
+            "longitude": -58.3816,
         },
     }
     r = requests.post(
@@ -71,7 +71,12 @@ def _get_or_create_store(db: Session, user_id: str) -> int:
         headers=_headers(),
         timeout=10,
     )
-    r.raise_for_status()
+    if not r.ok:
+        logger.error(
+            "MP store creation failed %s — response: %s",
+            r.status_code, r.text,
+        )
+        r.raise_for_status()
     sid = r.json()["id"]
     set_setting(db, "mp_store_id", str(sid))
     logger.info("MP store created: id=%s", sid)
@@ -114,7 +119,8 @@ def get_or_create_pos(db: Session) -> tuple[str, str]:
         set_setting(db, "mp_pos_ready", "1")
         logger.info("MP POS created: %s", r.json().get("id"))
     else:
-        logger.warning("MP POS creation returned %s: %s", r.status_code, r.text)
+        logger.error("MP POS creation failed %s — response: %s", r.status_code, r.text)
+        raise RuntimeError(f"No se pudo crear el POS en MP ({r.status_code}): {r.text}")
 
     return user_id, EXTERNAL_POS_ID
 
@@ -164,7 +170,10 @@ def create_qr_order(
     r = requests.put(url, json=payload, headers=_headers(), timeout=15)
 
     if not r.ok:
-        logger.error("QR order creation failed %s: %s", r.status_code, r.text)
+        logger.error(
+            "QR order creation failed %s — body: %s",
+            r.status_code, r.text,
+        )
         raise RuntimeError(f"MP QR order failed ({r.status_code}): {r.text}")
 
     data = r.json()

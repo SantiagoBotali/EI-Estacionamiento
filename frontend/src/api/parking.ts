@@ -71,10 +71,11 @@ export function exitPaySimulate(stay_id: string): Promise<ExitPayResponse> {
 }
 
 export interface MPPreferenceResponse {
-  qr_data: string        // encode as QR → opens natively in MP app
-  checkout_url: string   // browser fallback
+  qr_data: string        // EMV string (is_emv=true) o init_point URL (is_emv=false)
+  checkout_url: string   // URL para botón "Abrir en navegador"
   amount: number
   payment_id: string
+  is_emv: boolean        // true = QR nativo MP app, false = URL checkout
 }
 
 export interface MPStatusResponse {

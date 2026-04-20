@@ -20,10 +20,9 @@ import {
   type ActiveStay, type StayLookupResponse, type TariffInfo,
 } from '../../api/employee'
 import {
-  getParkingState, createMPPreference, checkMPPaymentStatus,
-  type ParkingState, type MPPreferenceResponse,
+  getParkingState,
+  type ParkingState,
 } from '../../api/parking'
-import QRCode from 'react-qr-code'
 import { CameraFeed } from '../../components/CameraFeed'
 import { ParkingMap } from '../../components/ParkingMap'
 import { useParkingSSE } from '../../hooks/useParkingSSE'
@@ -410,22 +409,32 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [granularity, setGranularity] = useState<Granularity>(() =>
     (sessionStorage.getItem('financeGranularity') as Granularity) ?? 'monthly'
   )
+  const [selectedMonth, setSelectedMonth] = useState<string>('') // YYYY-MM (daily)
+  const [selectedYear,  setSelectedYear]  = useState<string>('') // YYYY    (monthly)
   const [kpi, setKpi]               = useState<FinanceKPI | null>(null)
   const [rollup, setRollup]         = useState<RollupKPI | null>(null)
   const [yearlyTotal, setYearlyTotal] = useState<number>(0)
   const [loading, setLoading]       = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [chartKey, setChartKey]     = useState(0) // increments on every successful fetch → forces pie remount
 
-  const load = useCallback(async (gran: Granularity) => {
+  const load = useCallback(async (gran: Granularity, month: string, yr: string) => {
     try {
+      // Fetch yearly total separately only when no specific filter is active
+      const needYearly = gran !== 'yearly' && !month && !yr
       const [k, r, y] = await Promise.all([
         getFinanceKPI(),
-        getRollupKPI(gran),
-        gran !== 'yearly' ? getRollupKPI('yearly') : Promise.resolve(null),
+        getRollupKPI(gran, month || undefined, yr || undefined),
+        needYearly ? getRollupKPI('yearly') : Promise.resolve(null),
       ])
       setKpi(k)
       setRollup(r)
-      setYearlyTotal(gran === 'yearly' ? r.total_revenue : (y?.total_revenue ?? 0))
+      setChartKey(prev => prev + 1)
+      // yearly total sources:
+      //   granularity=yearly   → r is already historical
+      //   selectedYear active  → r.total_revenue is that year's total
+      //   otherwise            → y is the separate yearly fetch
+      setYearlyTotal(gran === 'yearly' || yr ? r.total_revenue : (y?.total_revenue ?? 0))
       setLastRefresh(new Date())
     } catch (e) {
       toast('error', (e as Error).message)
@@ -435,19 +444,21 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }, [toast])
 
   useEffect(() => {
-    load(granularity)
-    const id = setInterval(() => load(granularity), 30000)
+    load(granularity, selectedMonth, selectedYear)
+    const id = setInterval(() => load(granularity, selectedMonth, selectedYear), 30000)
     return () => clearInterval(id)
-  }, [load, granularity])
+  }, [load, granularity, selectedMonth, selectedYear])  // eslint-disable-line
 
   const switchGran = (g: Granularity) => {
     sessionStorage.setItem('financeGranularity', g)
     setGranularity(g)
+    setSelectedMonth('')
+    setSelectedYear('')
   }
 
   if (loading) return <LoadingScreen />
 
-  const pieData = (kpi?.por_metodo ?? [])
+  const pieData = (rollup?.by_method ?? [])
     .filter((m) => m.method !== 'SIMULATED')
     .map((m) => ({
       name: m.method === 'CASH' ? 'Efectivo' : 'MercadoPago',
@@ -455,61 +466,101 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
       color: METHOD_COLORS[m.method] ?? '#64748b',
     }))
 
-  const periodLabels: Record<Granularity, string> = {
-    daily: 'Últimos 30 días',
-    monthly: 'Últimos 12 meses',
-    yearly: 'Histórico',
-  }
-
   const chartBarSize = granularity === 'yearly' ? 40 : granularity === 'monthly' ? 14 : 12
-  const xInterval    = granularity === 'daily' ? 4 : 0
 
-  const revenueData = fillPeriodGaps(rollup?.revenue_by_period ?? [], granularity)
+  const activeFilter   = selectedMonth || selectedYear
+  const defaultLabel   = granularity === 'daily' ? 'Últimos 30 días' : granularity === 'monthly' ? 'Últimos 12 meses' : ''
+  const resetFilter    = () => { setSelectedMonth(''); setSelectedYear('') }
+
+  const revenueData = fillPeriodGaps(
+    rollup?.revenue_by_period ?? [],
+    granularity,
+    selectedMonth || undefined,
+    selectedYear  || undefined,
+  )
+
+  const xInterval = calcXInterval(revenueData.length)
+
+  const periodBadge = rollup?.period_label ?? ''
 
   return (
     <div className="space-y-6">
-      {/* Header row with granularity selector */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <AdminHeader
-          icon={<DollarSign className="w-5 h-5" />}
-          title="Finanzas"
-          lastRefresh={lastRefresh}
-          onRefresh={() => load(granularity)}
-        />
-        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
-          {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
-            <button
-              key={g}
-              onClick={() => switchGran(g)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g
-                ? 'bg-purple-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {GRAN_LABELS[g]}
-            </button>
-          ))}
+      {/* Header row */}
+      <div className="flex items-center gap-4 flex-wrap">
+        {/* Title — left */}
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <div className="text-purple-400"><DollarSign className="w-5 h-5" /></div>
+          <h2 className="text-lg font-bold text-white">Finanzas</h2>
+        </div>
+        {/* Refresh — center */}
+        <div className="flex items-center gap-2 justify-center">
+          {lastRefresh && (
+            <span className="text-slate-600 text-xs hidden sm:block">
+              Act. {lastRefresh.toLocaleTimeString('es-AR')}
+            </span>
+          )}
+          <button onClick={() => load(granularity, selectedMonth, selectedYear)} className="btn-ghost text-xs">
+            <RefreshCw className="w-3.5 h-3.5" />
+            Actualizar
+          </button>
+        </div>
+        {/* Granularity + filter — right */}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
+            {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
+              <button
+                key={g}
+                onClick={() => switchGran(g)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g && !activeFilter
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {GRAN_LABELS[g]}
+              </button>
+            ))}
+          </div>
+          {granularity === 'daily'   && <MonthPicker value={selectedMonth} onChange={setSelectedMonth} />}
+          {granularity === 'monthly' && <YearPicker  value={selectedYear}  onChange={setSelectedYear}  />}
         </div>
       </div>
 
-      {/* Period badge */}
-      <div>
+      {/* Period badge + reset */}
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-full text-xs font-medium text-slate-400">
-          {periodLabels[granularity]}
+          {periodBadge}
         </span>
+        {activeFilter && granularity !== 'yearly' && (
+          <button
+            onClick={resetFilter}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-amber-400 border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" />
+            {defaultLabel}
+          </button>
+        )}
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard icon={<DollarSign className="w-5 h-5" />} label="Ingresos hoy" value={formatCurrency(kpi?.ingresos_hoy ?? 0)} color="emerald" />
-        <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Ingresos del mes" value={formatCurrency(kpi?.ingresos_mes ?? 0)} color="blue" />
-        <KpiCard icon={<CreditCard className="w-5 h-5" />} label="Ticket promedio" value={formatCurrency(kpi?.ticket_promedio ?? 0)} color="purple" />
-        <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Total anual" value={formatCurrency(yearlyTotal)} color="amber" />
-      </div>
+      {(() => {
+        const currentYear = new Date().getFullYear()
+        const yearlyLabel =
+          granularity === 'yearly' ? 'Total histórico' :
+          selectedYear              ? `Total ${selectedYear}` :
+                                      `Total ${currentYear}`
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard icon={<DollarSign className="w-5 h-5" />} label="Ingresos hoy" value={formatCurrency(kpi?.ingresos_hoy ?? 0)} color="emerald" />
+            <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Ingresos del mes" value={formatCurrency(kpi?.ingresos_mes ?? 0)} color="blue" />
+            <KpiCard icon={<CreditCard className="w-5 h-5" />} label="Ticket promedio" value={formatCurrency(kpi?.ticket_promedio ?? 0)} color="purple" />
+            <KpiCard icon={<TrendingUp className="w-5 h-5" />} label={yearlyLabel} value={formatCurrency(yearlyTotal)} color="amber" />
+          </div>
+        )
+      })()}
 
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <ChartCard title={`Ingresos por período (${GRAN_LABELS[granularity].toLowerCase()})`}>
+        <ChartCard title={`Ingresos por período (${activeFilter ? activeFilter : GRAN_LABELS[granularity].toLowerCase()})`}>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={revenueData} barSize={chartBarSize}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
@@ -521,13 +572,13 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Distribución por método de pago">
+        <ChartCard title={`Distribución por método de pago${activeFilter ? ` (${periodBadge})` : ''}`}>
           {pieData.length === 0 ? (
             <div className="h-60 flex items-center justify-center text-slate-600 text-sm">Sin datos de pagos registrados</div>
           ) : (
-            <ResponsiveContainer width="100%" height={240}>
+            <ResponsiveContainer key={chartKey} width="100%" height={240}>
               <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" innerRadius={65} outerRadius={100} paddingAngle={3} dataKey="value">
+                <Pie data={pieData} cx="50%" cy="50%" innerRadius={65} outerRadius={100} paddingAngle={3} dataKey="value" isAnimationActive={false}>
                   {pieData.map((entry, i) => <Cell key={i} fill={entry.color} stroke="transparent" />)}
                 </Pie>
                 <Tooltip contentStyle={{ backgroundColor: CHART_THEME.tooltip.bg, border: `1px solid ${CHART_THEME.tooltip.border}`, borderRadius: 8, color: '#f1f5f9' }} itemStyle={{ color: '#f1f5f9' }} labelStyle={{ color: '#94a3b8' }} formatter={(v: number) => [formatCurrency(v)]} />
@@ -645,11 +696,76 @@ const GRAN_LABELS: Record<Granularity, string> = {
 }
 
 const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+const MONTH_NAMES_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+
+function YearPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const currentYear = new Date().getFullYear()
+  const years: number[] = []
+  for (let y = 2024; y <= currentYear; y++) years.push(y)
+  const selectCls = 'bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer'
+  return (
+    <div className="flex items-center gap-1">
+      <select value={value || ''} onChange={(e) => onChange(e.target.value)} className={selectCls}>
+        <option value="">Año</option>
+        {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+      </select>
+      {value && (
+        <button onClick={() => onChange('')} className="text-slate-500 hover:text-slate-200 px-1 text-base leading-none" title="Limpiar">×</button>
+      )}
+    </div>
+  )
+}
+
+function MonthPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const [selMonth, setSelMonth] = useState<number>(value ? parseInt(value.slice(5, 7)) : 0)
+  const [selYear,  setSelYear]  = useState<number>(value ? parseInt(value.slice(0, 4)) : 0)
+
+  useEffect(() => {
+    if (!value) { setSelMonth(0); setSelYear(0) }
+    else { setSelYear(parseInt(value.slice(0, 4))); setSelMonth(parseInt(value.slice(5, 7))) }
+  }, [value])
+
+  const emit = (y: number, m: number) => {
+    if (y && m) onChange(`${y}-${String(m).padStart(2, '0')}`)
+    else onChange('')
+  }
+
+  const years: number[] = []
+  for (let y = 2024; y <= currentYear; y++) years.push(y)
+
+  const selectCls = 'bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer'
+
+  return (
+    <div className="flex items-center gap-1">
+      <select value={selMonth || ''} onChange={(e) => { const m = Number(e.target.value); setSelMonth(m); emit(selYear, m) }} className={selectCls}>
+        <option value="">Mes</option>
+        {MONTH_NAMES_FULL.map((name, i) => <option key={i} value={i + 1}>{name}</option>)}
+      </select>
+      <select value={selYear || ''} onChange={(e) => { const y = Number(e.target.value); setSelYear(y); emit(y, selMonth) }} className={selectCls}>
+        <option value="">Año</option>
+        {years.map((y) => <option key={y} value={y}>{y}</option>)}
+      </select>
+      {(selMonth > 0 || selYear > 0) && (
+        <button onClick={() => { setSelMonth(0); setSelYear(0); onChange('') }} className="text-slate-500 hover:text-slate-200 px-1 text-base leading-none" title="Limpiar">×</button>
+      )}
+    </div>
+  )
+}
+
+/** Returns an XAxis interval so at most ~7 labels appear regardless of data length */
+function calcXInterval(dataLen: number): number {
+  if (dataLen <= 12) return 0
+  return Math.max(1, Math.ceil(dataLen / 7) - 1)
+}
 
 /** Fill gaps so every expected period bucket appears in the chart */
 function fillPeriodGaps(
   raw: { period: string; count?: number; amount?: number }[],
   granularity: Granularity,
+  specificMonth?: string, // 'YYYY-MM' — fills that month's days (daily view)
+  specificYear?: string,  // 'YYYY'    — fills all 12 months of that year (monthly view)
 ): { period: string; label: string; count: number; amount: number }[] {
   const map = new Map<string, { count: number; amount: number }>()
   for (const r of raw) {
@@ -659,7 +775,22 @@ function fillPeriodGaps(
   const now = new Date()
   const result: { period: string; label: string; count: number; amount: number }[] = []
 
-  if (granularity === 'daily') {
+  if (granularity === 'daily' && specificMonth) {
+    const [sy, sm] = specificMonth.split('-').map(Number)
+    const daysInMonth = new Date(sy, sm, 0).getDate()
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = `${sy}-${String(sm).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      const label = `${String(d).padStart(2, '0')}/${String(sm).padStart(2, '0')}`
+      result.push({ period: key, label, ...(map.get(key) ?? { count: 0, amount: 0 }) })
+    }
+  } else if (granularity === 'monthly' && specificYear) {
+    const year = parseInt(specificYear)
+    for (let m = 0; m < 12; m++) {
+      const key = `${year}-${String(m + 1).padStart(2, '0')}`
+      const label = `${MONTH_NAMES[m]} ${String(year).slice(2)}`
+      result.push({ period: key, label, ...(map.get(key) ?? { count: 0, amount: 0 }) })
+    }
+  } else if (granularity === 'daily') {
     for (let d = 29; d >= 0; d--) {
       const dt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - d))
       const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
@@ -701,14 +832,16 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [granularity, setGranularity] = useState<Granularity>(() => {
     return (sessionStorage.getItem('adminDashboardGranularity') as Granularity) ?? 'daily'
   })
+  const [selectedMonth, setSelectedMonth] = useState<string>('') // YYYY-MM (daily)
+  const [selectedYear,  setSelectedYear]  = useState<string>('') // YYYY    (monthly)
   const [kpi, setKpi] = useState<RollupKPI | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
-  const load = useCallback(async (gran: Granularity) => {
+  const load = useCallback(async (gran: Granularity, month: string, yr: string) => {
     setLoading(true)
     try {
-      setKpi(await getRollupKPI(gran))
+      setKpi(await getRollupKPI(gran, month || undefined, yr || undefined))
       setLastRefresh(new Date())
     } catch (e) {
       toast('error', (e as Error).message)
@@ -718,20 +851,23 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }, [toast])
 
   useEffect(() => {
-    load(granularity)
-    const id = setInterval(() => load(granularity), 30000)
+    load(granularity, selectedMonth, selectedYear)
+    const id = setInterval(() => load(granularity, selectedMonth, selectedYear), 30000)
     return () => clearInterval(id)
-  }, [load, granularity])
+  }, [load, granularity, selectedMonth, selectedYear])
 
   const switchGran = (g: Granularity) => {
     sessionStorage.setItem('adminDashboardGranularity', g)
     setGranularity(g)
+    setSelectedMonth('')
+    setSelectedYear('')
   }
 
-  const staysData   = fillPeriodGaps(kpi?.stays_by_period ?? [], granularity)
-  const revenueData = fillPeriodGaps(kpi?.revenue_by_period ?? [], granularity)
+  const activeFilter = selectedMonth || selectedYear
+  const staysData   = fillPeriodGaps(kpi?.stays_by_period ?? [], granularity, selectedMonth || undefined, selectedYear || undefined)
+  const revenueData = fillPeriodGaps(kpi?.revenue_by_period ?? [], granularity, selectedMonth || undefined, selectedYear || undefined)
 
-  const xInterval = granularity === 'daily' ? 4 : 0
+  const xInterval = calcXInterval(staysData.length)
 
   return (
     <div className="space-y-6">
@@ -740,28 +876,32 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           icon={<Calendar className="w-5 h-5" />}
           title="Dashboards Operacionales"
           lastRefresh={lastRefresh}
-          onRefresh={() => load(granularity)}
+          onRefresh={() => load(granularity, selectedMonth, selectedYear)}
         />
-        {/* Granularity selector */}
-        <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
-          {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
-            <button
-              key={g}
-              onClick={() => switchGran(g)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g
-                  ? 'bg-purple-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-                }`}
-            >
-              {GRAN_LABELS[g]}
-            </button>
-          ))}
+        {/* Granularity + filter */}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
+            {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
+              <button
+                key={g}
+                onClick={() => switchGran(g)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g && !activeFilter
+                    ? 'bg-purple-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                  }`}
+              >
+                {GRAN_LABELS[g]}
+              </button>
+            ))}
+          </div>
+          {granularity === 'daily'   && <MonthPicker value={selectedMonth} onChange={setSelectedMonth} />}
+          {granularity === 'monthly' && <YearPicker  value={selectedYear}  onChange={setSelectedYear}  />}
         </div>
       </div>
 
       {/* Period badge */}
       {kpi && (
-        <div className="flex items-center gap-2 text-xs text-slate-500">
+        <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
           <span className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-full font-medium text-slate-400">
             {kpi.period_label}
           </span>
@@ -769,6 +909,15 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             <span className="px-2.5 py-1 bg-purple-900/40 border border-purple-700/40 rounded-full text-purple-400">
               Pico: {formatPeriodLabel(kpi.peak_period, granularity)}
             </span>
+          )}
+          {activeFilter && granularity !== 'yearly' && (
+            <button
+              onClick={() => { setSelectedMonth(''); setSelectedYear('') }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium text-amber-400 border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
+            >
+              <RefreshCw className="w-3 h-3" />
+              {granularity === 'daily' ? 'Últimos 30 días' : 'Últimos 12 meses'}
+            </button>
           )}
         </div>
       )}
@@ -785,7 +934,7 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
           {/* Charts */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <ChartCard title={`Estadías por período (${GRAN_LABELS[granularity].toLowerCase()})`}>
+            <ChartCard title={`Estadías por período (${activeFilter ? activeFilter : GRAN_LABELS[granularity].toLowerCase()})`}>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={staysData} barSize={granularity === 'yearly' ? 40 : 12}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
@@ -807,7 +956,7 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title={`Ingresos por período (${GRAN_LABELS[granularity].toLowerCase()})`}>
+            <ChartCard title={`Ingresos por período (${activeFilter ? activeFilter : GRAN_LABELS[granularity].toLowerCase()})`}>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={revenueData} barSize={granularity === 'yearly' ? 40 : 12}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
@@ -925,7 +1074,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const clearSearch = () => { setQuery(''); setLookupResult(null) }
 
   const [cashModal, setCashModal]   = useState<{ stayId: string; amount: number } | null>(null)
-  const [mpModal, setMpModal]       = useState<{ stayId: string; amount: number } | null>(null)
   const [paying, setPaying]         = useState(false)
 
   const handleCash = async () => {
@@ -945,7 +1093,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }
 
   const openCashModal = (stayId: string, amount: number) => setCashModal({ stayId, amount })
-  const openMpModal   = (stayId: string, amount: number) => setMpModal({ stayId, amount })
 
   return (
     <div className="space-y-6">
@@ -1016,14 +1163,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
               >
                 <CreditCard className="w-4 h-4" />
                 Cobrar efectivo
-              </button>
-              <button
-                onClick={() => openMpModal(lookupResult.stay.id, computeLiveAmount(lookupResult.stay.entry_at, tariff))}
-                className="btn-primary"
-                disabled={paying}
-              >
-                <Activity className="w-4 h-4" />
-                MercadoPago
               </button>
             </div>
           )}
@@ -1107,14 +1246,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                               <CreditCard className="w-3.5 h-3.5" />
                               Efectivo
                             </button>
-                            <button
-                              onClick={() => openMpModal(s.id, liveAmount)}
-                              className="btn-primary py-1 px-2 text-xs"
-                              disabled={paying}
-                            >
-                              <Activity className="w-3.5 h-3.5" />
-                              MercadoPago
-                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1142,136 +1273,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         </StaysModal>
       )}
 
-      {/* MercadoPago modal */}
-      {mpModal && (
-        <MPPaymentModal
-          stayId={mpModal.stayId}
-          amount={mpModal.amount}
-          onClose={() => setMpModal(null)}
-          onPaid={() => { setMpModal(null); clearSearch(); loadStays() }}
-          toast={toast}
-        />
-      )}
-    </div>
-  )
-}
-
-/* ─────────────────────────────────────────────────────────────
-   MercadoPago QR payment modal
-───────────────────────────────────────────────────────────── */
-function MPPaymentModal({
-  stayId, amount, onClose, onPaid, toast,
-}: {
-  stayId: string
-  amount: number
-  onClose: () => void
-  onPaid: () => void
-  toast: ReturnType<typeof useToast>
-}) {
-  type Phase = 'loading' | 'qr' | 'polling' | 'approved' | 'rejected' | 'error'
-  const [phase, setPhase] = useState<Phase>('loading')
-  const [pref, setPref]   = useState<MPPreferenceResponse | null>(null)
-  const pollRef            = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  useEffect(() => {
-    createMPPreference(stayId)
-      .then((p) => { setPref(p); setPhase('qr') })
-      .catch((e) => { toast('error', (e as Error).message); setPhase('error') })
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [stayId, toast])
-
-  const startPolling = () => {
-    setPhase('polling')
-    pollRef.current = setInterval(async () => {
-      try {
-        const s = await checkMPPaymentStatus(stayId)
-        if (s.status === 'approved') {
-          clearInterval(pollRef.current!)
-          setPhase('approved')
-          setTimeout(onPaid, 1500)
-        } else if (s.status === 'rejected') {
-          clearInterval(pollRef.current!)
-          setPhase('rejected')
-        }
-      } catch { /* keep polling */ }
-    }, 5000)
-  }
-
-  const overlayRef = useRef<HTMLDivElement>(null)
-
-  return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      onClick={(e) => e.target === overlayRef.current && onClose()}
-    >
-      <div className="bg-slate-900 border border-slate-700/60 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-slide-up space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-bold text-white text-base">Pago MercadoPago</h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300"><X className="w-5 h-5" /></button>
-        </div>
-
-        <p className="text-slate-400 text-sm">Monto: <span className="text-white font-bold">{formatCurrency(amount)}</span></p>
-
-        {phase === 'loading' && (
-          <div className="flex items-center justify-center h-48">
-            <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
-          </div>
-        )}
-
-        {(phase === 'qr' || phase === 'polling') && pref && (
-          <div className="space-y-3">
-            {pref.qr_data && (
-              <div className="bg-white p-3 rounded-xl flex items-center justify-center">
-                <QRCode value={pref.qr_data} size={180} />
-              </div>
-            )}
-            <p className="text-xs text-slate-500 text-center">
-              {phase === 'polling' ? 'Esperando confirmación de pago…' : 'Escaneá con la app de MercadoPago'}
-            </p>
-            {pref.checkout_url && (
-              <a href={pref.checkout_url} target="_blank" rel="noreferrer"
-                className="btn-primary w-full justify-center text-sm">
-                Abrir en MercadoPago
-              </a>
-            )}
-            {phase === 'qr' && (
-              <button onClick={startPolling} className="btn-ghost w-full text-sm text-slate-400">
-                Ya pagué — verificar
-              </button>
-            )}
-            {phase === 'polling' && (
-              <div className="flex items-center justify-center gap-2 text-amber-400 text-xs">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Verificando pago…
-              </div>
-            )}
-          </div>
-        )}
-
-        {phase === 'approved' && (
-          <div className="flex flex-col items-center gap-3 py-4">
-            <div className="w-14 h-14 rounded-full bg-emerald-500/20 flex items-center justify-center">
-              <Activity className="w-7 h-7 text-emerald-400" />
-            </div>
-            <p className="text-emerald-400 font-bold">¡Pago aprobado!</p>
-          </div>
-        )}
-
-        {phase === 'rejected' && (
-          <div className="flex flex-col items-center gap-3 py-4">
-            <p className="text-red-400 font-bold">Pago rechazado</p>
-            <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
-          </div>
-        )}
-
-        {phase === 'error' && (
-          <div className="flex flex-col items-center gap-3 py-4">
-            <p className="text-red-400 text-sm">No se pudo iniciar el pago</p>
-            <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

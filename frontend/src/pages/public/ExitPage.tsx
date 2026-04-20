@@ -305,33 +305,51 @@ export function ExitPage() {
                             border-b border-sky-700/50 px-6 py-4 text-center">
               <QrCode className="w-8 h-8 text-sky-400 mx-auto mb-1" />
               <p className="text-white font-semibold">Mercado Pago</p>
-              <p className="text-sky-300/70 text-sm">Escanee el código con la app o toque para abrir</p>
+              {mpPref.is_emv ? (
+                <p className="text-sky-300/70 text-sm">
+                  Abri la app de Mercado Pago y escaneá este QR
+                </p>
+              ) : (
+                <p className="text-sky-300/70 text-sm">
+                  Escaneá con la cámara o con la app de Mercado Pago
+                </p>
+              )}
             </div>
 
             <div className="px-6 py-5 space-y-4">
-              {/* QR code — uses qr_data (native MP app) or checkout_url as fallback */}
+              {/* QR code */}
               <div
                 className="bg-white rounded-2xl p-5 flex items-center justify-center cursor-pointer
                            hover:opacity-90 transition-opacity"
                 onClick={handleOpenCheckout}
-                title="Toca para abrir el checkout en el navegador"
+                title="Toca para abrir en el navegador"
               >
                 <QRCode
-                  value={mpPref.qr_data || mpPref.checkout_url}
+                  value={mpPref.qr_data}
                   size={192}
                   style={{ height: 'auto', maxWidth: '100%', width: '100%' }}
                   viewBox="0 0 256 256"
                 />
               </div>
 
-              {mpPref.qr_data ? (
-                <p className="text-center text-sky-300/70 text-xs">
-                  Escaneá con la app de Mercado Pago
-                </p>
+              {mpPref.is_emv ? (
+                <div className="bg-sky-950/50 border border-sky-800/40 rounded-xl px-4 py-2.5 text-center space-y-0.5">
+                  <p className="text-sky-300 text-xs font-semibold">
+                    Usá el escaner de la app de Mercado Pago
+                  </p>
+                  <p className="text-slate-500 text-xs">
+                    La camara del celular no reconoce este tipo de QR
+                  </p>
+                </div>
               ) : (
-                <p className="text-center text-amber-400/70 text-xs">
-                  Escaneá con la cámara para abrir en el navegador
-                </p>
+                <div className="bg-sky-950/50 border border-sky-800/40 rounded-xl px-4 py-2.5 text-center space-y-0.5">
+                  <p className="text-sky-300 text-xs font-semibold">
+                    Escaneá con la cámara o con la app de Mercado Pago
+                  </p>
+                  <p className="text-slate-500 text-xs">
+                    Si tenés la app instalada, se abrirá automáticamente
+                  </p>
+                </div>
               )}
 
               {/* Amount */}
@@ -348,7 +366,7 @@ export function ExitPage() {
                 Esperando confirmación de pago…
               </div>
 
-              {/* Open in browser button (fallback) */}
+              {/* Open in browser button */}
               {mpPref.checkout_url && (
                 <button
                   onClick={handleOpenCheckout}

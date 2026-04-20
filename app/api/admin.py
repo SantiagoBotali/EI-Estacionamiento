@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
@@ -182,56 +183,85 @@ async def finance_kpis(
 
 # ─── Rollup KPIs (daily / monthly / yearly) ───────────────────────────────────
 
+_MONTH_NAMES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+
+
 @router.get("/kpis/rollup", response_model=RollupKPI)
 async def kpis_rollup(
     granularity: str = "daily",
+    month: Optional[str] = None,  # YYYY-MM → daily view for that specific month
+    year: Optional[int] = None,   # YYYY    → monthly view for that specific year
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    scope_end: Optional[datetime] = None
 
-    # ── Scope & format ───────────────────────────────────────────────────────
-    if granularity == "monthly":
-        start_m = now.month - 11
-        start_y = now.year
-        if start_m <= 0:
-            start_m += 12
-            start_y -= 1
-        scope_start: datetime = datetime(start_y, start_m, 1, tzinfo=timezone.utc)
-        sqlite_fmt = "%Y-%m"
-        period_label = "Últimos 12 meses"
-    elif granularity == "yearly":
-        scope_start = datetime(2000, 1, 1, tzinfo=timezone.utc)
-        sqlite_fmt = "%Y"
-        period_label = "Histórico"
-    else:
-        granularity = "daily"
-        scope_start = today_start - timedelta(days=29)
-        sqlite_fmt = "%Y-%m-%d"
-        period_label = "Últimos 30 días"
+    # ── Specific month → daily view scoped to that month ─────────────────────
+    if month:
+        try:
+            y, mon = int(month[:4]), int(month[5:7])
+            scope_start: datetime = datetime(y, mon, 1, tzinfo=timezone.utc)
+            next_mon = mon + 1 if mon < 12 else 1
+            next_year = y if mon < 12 else y + 1
+            scope_end = datetime(next_year, next_mon, 1, tzinfo=timezone.utc)
+            granularity = "daily"
+            sqlite_fmt = "%Y-%m-%d"
+            period_label = f"{_MONTH_NAMES_ES[mon - 1]} {y}"
+        except Exception:
+            month = None
+
+    # ── Specific year → monthly view scoped to that year ─────────────────────
+    elif year:
+        try:
+            scope_start = datetime(year, 1, 1, tzinfo=timezone.utc)
+            scope_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+            granularity = "monthly"
+            sqlite_fmt = "%Y-%m"
+            period_label = str(year)
+        except Exception:
+            year = None
+
+    # ── Scope & format (default ranges) ──────────────────────────────────────
+    if not month and not year:
+        if granularity == "monthly":
+            start_m = now.month - 11
+            start_y = now.year
+            if start_m <= 0:
+                start_m += 12
+                start_y -= 1
+            scope_start = datetime(start_y, start_m, 1, tzinfo=timezone.utc)
+            sqlite_fmt = "%Y-%m"
+            period_label = "Últimos 12 meses"
+        elif granularity == "yearly":
+            scope_start = datetime(2000, 1, 1, tzinfo=timezone.utc)
+            sqlite_fmt = "%Y"
+            period_label = "Histórico"
+        else:
+            granularity = "daily"
+            scope_start = today_start - timedelta(days=29)
+            sqlite_fmt = "%Y-%m-%d"
+            period_label = "Últimos 30 días"
 
     # ── Stays grouped by period ──────────────────────────────────────────────
     period_expr = func.strftime(sqlite_fmt, Stay.entry_at)
-    stays_rows = (
+    stays_q = (
         db.query(period_expr.label("period"), func.count(Stay.id).label("cnt"))
         .filter(Stay.entry_at >= scope_start)
-        .group_by(period_expr)
-        .order_by(period_expr)
-        .all()
     )
+    if scope_end:
+        stays_q = stays_q.filter(Stay.entry_at < scope_end)
+    stays_rows = stays_q.group_by(period_expr).order_by(period_expr).all()
     stays_by_period = [{"period": r.period, "count": r.cnt} for r in stays_rows]
     total_stays = sum(r.cnt for r in stays_rows)
     peak_period = max(stays_rows, key=lambda r: r.cnt).period if stays_rows else None
 
     # ── Average duration (stays that started in scope with an exit_at) ───────
-    closed_in_scope = (
-        db.execute(
-            select(Stay).where(Stay.entry_at >= scope_start, Stay.exit_at.isnot(None))
-        )
-        .scalars()
-        .all()
-    )
+    closed_q = select(Stay).where(Stay.entry_at >= scope_start, Stay.exit_at.isnot(None))
+    if scope_end:
+        closed_q = closed_q.where(Stay.entry_at < scope_end)
+    closed_in_scope = db.execute(closed_q).scalars().all()
     durations = []
     for s in closed_in_scope:
         entry = s.entry_at if s.entry_at.tzinfo else s.entry_at.replace(tzinfo=timezone.utc)
@@ -243,33 +273,32 @@ async def kpis_rollup(
     ts_col = func.coalesce(Payment.processed_at, Payment.created_at)
     period_pay_expr = func.strftime(sqlite_fmt, ts_col)
 
-    rev_rows = (
+    rev_q = (
         db.query(period_pay_expr.label("period"), func.sum(Payment.amount).label("total"))
         .filter(Payment.status == PaymentStatus.APPROVED, ts_col >= scope_start)
-        .group_by(period_pay_expr)
-        .order_by(period_pay_expr)
-        .all()
     )
+    if scope_end:
+        rev_q = rev_q.filter(ts_col < scope_end)
+    rev_rows = rev_q.group_by(period_pay_expr).order_by(period_pay_expr).all()
     revenue_by_period = [{"period": r.period, "amount": round(r.total, 2)} for r in rev_rows]
     total_revenue = sum(r.total for r in rev_rows)
 
-    pay_count = (
-        db.execute(
-            select(func.count(Payment.id)).where(
-                Payment.status == PaymentStatus.APPROVED, ts_col >= scope_start
-            )
-        ).scalar()
-        or 0
+    pay_cnt_q = select(func.count(Payment.id)).where(
+        Payment.status == PaymentStatus.APPROVED, ts_col >= scope_start
     )
+    if scope_end:
+        pay_cnt_q = pay_cnt_q.where(ts_col < scope_end)
+    pay_count = db.execute(pay_cnt_q).scalar() or 0
     avg_ticket = total_revenue / pay_count if pay_count else 0.0
 
     # ── By method (scope) ────────────────────────────────────────────────────
-    method_rows = (
+    method_q = (
         db.query(Payment.method, func.sum(Payment.amount).label("total"))
         .filter(Payment.status == PaymentStatus.APPROVED, ts_col >= scope_start)
-        .group_by(Payment.method)
-        .all()
     )
+    if scope_end:
+        method_q = method_q.filter(ts_col < scope_end)
+    method_rows = method_q.group_by(Payment.method).all()
     by_method = [{"method": r.method, "amount": round(r.total, 2)} for r in method_rows]
 
     # ── Pending (always real-time) ────────────────────────────────────────────

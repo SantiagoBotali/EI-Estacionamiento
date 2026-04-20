@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Activity, Camera, Car, ChevronRight, ClipboardList,
+  Camera, Car, ChevronRight, ClipboardList,
   CreditCard, Loader2, LogOut, MapPin,
   ParkingCircle, Plus, RefreshCw, Search, Sparkles, Users, X,
 } from 'lucide-react'
-import QRCode from 'react-qr-code'
 import { getRole, getToken, getUsername, clearAuth } from '../../api/client'
 import { useClock } from '../../hooks/useClock'
 import {
-  getParkingState, createMPPreference, checkMPPaymentStatus,
-  type ParkingState, type MPPreferenceResponse,
+  getParkingState,
+  type ParkingState,
 } from '../../api/parking'
 import {
   getActiveStays, lookupStay, createStay, closeCash,
@@ -311,7 +310,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   // ── Shared payment handlers ──────────────────────────────
   const [cashModal, setCashModal] = useState<{ stayId: string; amount: number } | null>(null)
-  const [mpModal, setMpModal]     = useState<{ stayId: string; amount: number } | null>(null)
   const [paying, setPaying]       = useState(false)
 
   const handleCash = async () => {
@@ -331,7 +329,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }
 
   const openCashModal = (stayId: string, amount: number) => setCashModal({ stayId, amount })
-  const openMpModal   = (stayId: string, amount: number) => setMpModal({ stayId, amount })
 
   // ── Render ───────────────────────────────────────────────
   return (
@@ -409,14 +406,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
               >
                 <CreditCard className="w-4 h-4" />
                 Cobrar efectivo
-              </button>
-              <button
-                onClick={() => openMpModal(lookupResult.stay.id, computeLiveAmount(lookupResult.stay.entry_at, tariff))}
-                className="btn-primary"
-                disabled={paying}
-              >
-                <Activity className="w-4 h-4" />
-                MercadoPago
               </button>
             </div>
           )}
@@ -502,14 +491,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                             <CreditCard className="w-3.5 h-3.5" />
                             Efectivo
                           </button>
-                          <button
-                            onClick={() => openMpModal(s.id, liveAmount)}
-                            className="btn-primary py-1 px-2 text-xs"
-                            disabled={paying}
-                          >
-                            <Activity className="w-3.5 h-3.5" />
-                            MercadoPago
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -539,136 +520,6 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         </Modal>
       )}
 
-      {/* MercadoPago modal */}
-      {mpModal && (
-        <EmployeeMPModal
-          stayId={mpModal.stayId}
-          amount={mpModal.amount}
-          onClose={() => setMpModal(null)}
-          onPaid={() => { setMpModal(null); clearSearch(); loadStays() }}
-          toast={toast}
-        />
-      )}
-    </div>
-  )
-}
-
-/* ─────────────────────────────────────────────────────────────
-   MercadoPago QR modal (employee)
-───────────────────────────────────────────────────────────── */
-function EmployeeMPModal({
-  stayId, amount, onClose, onPaid, toast,
-}: {
-  stayId: string
-  amount: number
-  onClose: () => void
-  onPaid: () => void
-  toast: ReturnType<typeof useToast>
-}) {
-  type Phase = 'loading' | 'qr' | 'polling' | 'approved' | 'rejected' | 'error'
-  const [phase, setPhase] = useState<Phase>('loading')
-  const [pref, setPref]   = useState<MPPreferenceResponse | null>(null)
-  const pollRef            = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  useEffect(() => {
-    createMPPreference(stayId)
-      .then((p) => { setPref(p); setPhase('qr') })
-      .catch((e) => { toast('error', (e as Error).message); setPhase('error') })
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [stayId, toast])
-
-  const startPolling = () => {
-    setPhase('polling')
-    pollRef.current = setInterval(async () => {
-      try {
-        const s = await checkMPPaymentStatus(stayId)
-        if (s.status === 'approved') {
-          clearInterval(pollRef.current!)
-          setPhase('approved')
-          setTimeout(onPaid, 1500)
-        } else if (s.status === 'rejected') {
-          clearInterval(pollRef.current!)
-          setPhase('rejected')
-        }
-      } catch { /* keep polling */ }
-    }, 5000)
-  }
-
-  const overlayRef = useRef<HTMLDivElement>(null)
-
-  return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      onClick={(e) => e.target === overlayRef.current && onClose()}
-    >
-      <div className="bg-slate-900 border border-slate-700/60 rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-bold text-white text-base">Pago MercadoPago</h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300"><X className="w-5 h-5" /></button>
-        </div>
-
-        <p className="text-slate-400 text-sm">Monto: <span className="text-white font-bold">{formatCurrency(amount)}</span></p>
-
-        {phase === 'loading' && (
-          <div className="flex items-center justify-center h-48">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-          </div>
-        )}
-
-        {(phase === 'qr' || phase === 'polling') && pref && (
-          <div className="space-y-3">
-            {pref.qr_data && (
-              <div className="bg-white p-3 rounded-xl flex items-center justify-center">
-                <QRCode value={pref.qr_data} size={180} />
-              </div>
-            )}
-            <p className="text-xs text-slate-500 text-center">
-              {phase === 'polling' ? 'Esperando confirmación de pago…' : 'Escaneá con la app de MercadoPago'}
-            </p>
-            {pref.checkout_url && (
-              <a href={pref.checkout_url} target="_blank" rel="noreferrer"
-                className="btn-primary w-full justify-center text-sm">
-                Abrir en MercadoPago
-              </a>
-            )}
-            {phase === 'qr' && (
-              <button onClick={startPolling} className="btn-ghost w-full text-sm text-slate-400">
-                Ya pagué — verificar
-              </button>
-            )}
-            {phase === 'polling' && (
-              <div className="flex items-center justify-center gap-2 text-amber-400 text-xs">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Verificando pago…
-              </div>
-            )}
-          </div>
-        )}
-
-        {phase === 'approved' && (
-          <div className="flex flex-col items-center gap-3 py-4">
-            <div className="w-14 h-14 rounded-full bg-emerald-500/20 flex items-center justify-center">
-              <Activity className="w-7 h-7 text-emerald-400" />
-            </div>
-            <p className="text-emerald-400 font-bold">¡Pago aprobado!</p>
-          </div>
-        )}
-
-        {phase === 'rejected' && (
-          <div className="flex flex-col items-center gap-3 py-4">
-            <p className="text-red-400 font-bold">Pago rechazado</p>
-            <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
-          </div>
-        )}
-
-        {phase === 'error' && (
-          <div className="flex flex-col items-center gap-3 py-4">
-            <p className="text-red-400 text-sm">No se pudo iniciar el pago</p>
-            <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
-          </div>
-        )}
-      </div>
     </div>
   )
 }
