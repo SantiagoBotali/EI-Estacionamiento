@@ -22,14 +22,22 @@ def calculate_price(
     Returns:
         Amount in ARS (float).
     """
-    if exit_at is None:
-        exit_at = datetime.now(timezone.utc)
+    from datetime import timedelta
 
-    # Ensure both datetimes are timezone-aware
-    if entry_at.tzinfo is None:
-        entry_at = entry_at.replace(tzinfo=timezone.utc)
-    if exit_at.tzinfo is None:
-        exit_at = exit_at.replace(tzinfo=timezone.utc)
+    # entry_at is always stored as naive ARS (UTC-3).
+    # Normalize entry_at to naive ARS.
+    if entry_at.tzinfo is not None:
+        # aware → convert to ARS naive
+        entry_at = entry_at.astimezone(timezone.utc).replace(tzinfo=None) - timedelta(hours=3)
+    # else: already naive ARS, use as-is
+
+    # Normalize exit_at to naive ARS.
+    if exit_at is None:
+        exit_at = datetime.utcnow() - timedelta(hours=3)
+    elif exit_at.tzinfo is not None:
+        exit_at = exit_at.astimezone(timezone.utc).replace(tzinfo=None) - timedelta(hours=3)
+    # else: already naive ARS, use as-is
+
 
     duration_seconds = max(0, (exit_at - entry_at).total_seconds())
     duration_minutes = duration_seconds / 60.0

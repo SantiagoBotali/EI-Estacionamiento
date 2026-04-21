@@ -33,12 +33,12 @@ import { formatCurrency, formatDateTime, formatDuration, getStatusBadge, getStat
 type Tab = 'operations' | 'finance' | 'camera' | 'live' | 'dashboards' | 'stays'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
-  { id: 'operations', icon: <BarChart2     className="w-5 h-5" />, label: 'Operaciones' },
-  { id: 'finance',    icon: <DollarSign    className="w-5 h-5" />, label: 'Finanzas'    },
-  { id: 'stays',      icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías'    },
-  { id: 'dashboards', icon: <Calendar      className="w-5 h-5" />, label: 'Dashboards'  },
-  { id: 'camera',     icon: <Camera        className="w-5 h-5" />, label: 'Cámara'      },
-  { id: 'live',       icon: <MapPin        className="w-5 h-5" />, label: 'En vivo'     },
+  { id: 'operations', icon: <BarChart2 className="w-5 h-5" />, label: 'Operaciones' },
+  { id: 'finance', icon: <DollarSign className="w-5 h-5" />, label: 'Finanzas' },
+  { id: 'stays', icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías' },
+  { id: 'dashboards', icon: <Calendar className="w-5 h-5" />, label: 'Dashboards' },
+  { id: 'camera', icon: <Camera className="w-5 h-5" />, label: 'Cámara' },
+  { id: 'live', icon: <MapPin className="w-5 h-5" />, label: 'En vivo' },
 ]
 
 const CHART_THEME = {
@@ -149,11 +149,11 @@ export function AdminDashboardPage() {
       <main className="flex-1 overflow-auto">
         <div className="p-5 lg:p-7 animate-fade-in">
           {tab === 'operations' && <OperationsTab toast={toast} />}
-          {tab === 'finance'    && <FinanceTab    toast={toast} />}
-          {tab === 'stays'      && <StaysTab      toast={toast} />}
+          {tab === 'finance' && <FinanceTab toast={toast} />}
+          {tab === 'stays' && <StaysTab toast={toast} />}
           {tab === 'dashboards' && <DashboardsTab toast={toast} />}
-          {tab === 'camera'     && <CameraTab     toast={toast} />}
-          {tab === 'live'       && <LiveTab />}
+          {tab === 'camera' && <CameraTab toast={toast} />}
+          {tab === 'live' && <LiveTab />}
         </div>
       </main>
     </div>
@@ -172,11 +172,11 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   // Per-field tariff inputs
-  const [newRate, setNewRate]       = useState('')
-  const [newMin, setNewMin]         = useState('')
-  const [newGrace, setNewGrace]     = useState('')
-  const [rateError, setRateError]   = useState('')
-  const [minError, setMinError]     = useState('')
+  const [newRate, setNewRate] = useState('')
+  const [newMin, setNewMin] = useState('')
+  const [newGrace, setNewGrace] = useState('')
+  const [rateError, setRateError] = useState('')
+  const [minError, setMinError] = useState('')
   const [graceError, setGraceError] = useState('')
   const [savingField, setSavingField] = useState<'rate' | 'min' | 'grace' | null>(null)
   const [confirmRate, setConfirmRate] = useState<number | null>(null)
@@ -410,13 +410,13 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     (sessionStorage.getItem('financeGranularity') as Granularity) ?? 'monthly'
   )
   const [selectedMonth, setSelectedMonth] = useState<string>('') // YYYY-MM (daily)
-  const [selectedYear,  setSelectedYear]  = useState<string>('') // YYYY    (monthly)
-  const [kpi, setKpi]               = useState<FinanceKPI | null>(null)
-  const [rollup, setRollup]         = useState<RollupKPI | null>(null)
+  const [selectedYear, setSelectedYear] = useState<string>('') // YYYY    (monthly)
+  const [kpi, setKpi] = useState<FinanceKPI | null>(null)
+  const [rollup, setRollup] = useState<RollupKPI | null>(null)
   const [yearlyTotal, setYearlyTotal] = useState<number>(0)
-  const [loading, setLoading]       = useState(true)
+  const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
-  const [chartKey, setChartKey]     = useState(0) // increments on every successful fetch → forces pie remount
+  const [chartKey, setChartKey] = useState(0) // increments on every successful fetch → forces pie remount
 
   const load = useCallback(async (gran: Granularity, month: string, yr: string) => {
     try {
@@ -468,15 +468,15 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   const chartBarSize = granularity === 'yearly' ? 40 : granularity === 'monthly' ? 14 : 12
 
-  const activeFilter   = selectedMonth || selectedYear
-  const defaultLabel   = granularity === 'daily' ? 'Últimos 30 días' : granularity === 'monthly' ? 'Últimos 12 meses' : ''
-  const resetFilter    = () => { setSelectedMonth(''); setSelectedYear('') }
+  const activeFilter = selectedMonth || selectedYear
+  const defaultLabel = granularity === 'daily' ? 'Últimos 30 días' : granularity === 'monthly' ? 'Últimos 12 meses' : ''
+  const resetFilter = () => { setSelectedMonth(''); setSelectedYear('') }
 
   const revenueData = fillPeriodGaps(
     rollup?.revenue_by_period ?? [],
     granularity,
     selectedMonth || undefined,
-    selectedYear  || undefined,
+    selectedYear || undefined,
   )
 
   const xInterval = calcXInterval(revenueData.length)
@@ -514,14 +514,14 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                 className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g && !activeFilter
                   ? 'bg-purple-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200'
-                }`}
+                  }`}
               >
                 {GRAN_LABELS[g]}
               </button>
             ))}
           </div>
-          {granularity === 'daily'   && <MonthPicker value={selectedMonth} onChange={setSelectedMonth} />}
-          {granularity === 'monthly' && <YearPicker  value={selectedYear}  onChange={setSelectedYear}  />}
+          {granularity === 'daily' && <MonthPicker value={selectedMonth} onChange={setSelectedMonth} />}
+          {granularity === 'monthly' && <YearPicker value={selectedYear} onChange={setSelectedYear} />}
         </div>
       </div>
 
@@ -546,13 +546,13 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         const currentYear = new Date().getFullYear()
         const yearlyLabel =
           granularity === 'yearly' ? 'Total histórico' :
-          selectedYear              ? `Total ${selectedYear}` :
-                                      `Total ${currentYear}`
+            selectedYear ? `Total ${selectedYear}` :
+              `Total ${currentYear}`
         return (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard icon={<DollarSign className="w-5 h-5" />} label="Ingresos hoy" value={formatCurrency(kpi?.ingresos_hoy ?? 0)} color="emerald" />
             <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Ingresos del mes" value={formatCurrency(kpi?.ingresos_mes ?? 0)} color="blue" />
-            <KpiCard icon={<CreditCard className="w-5 h-5" />} label="Ticket promedio" value={formatCurrency(kpi?.ticket_promedio ?? 0)} color="purple" />
+            <KpiCard icon={<CreditCard className="w-5 h-5" />} label="Ticket promedio hoy" value={formatCurrency(kpi?.ticket_promedio ?? 0)} color="purple" />
             <KpiCard icon={<TrendingUp className="w-5 h-5" />} label={yearlyLabel} value={formatCurrency(yearlyTotal)} color="amber" />
           </div>
         )
@@ -696,7 +696,7 @@ const GRAN_LABELS: Record<Granularity, string> = {
 }
 
 const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-const MONTH_NAMES_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+const MONTH_NAMES_FULL = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 
 function YearPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const currentYear = new Date().getFullYear()
@@ -720,7 +720,7 @@ function MonthPicker({ value, onChange }: { value: string; onChange: (v: string)
   const now = new Date()
   const currentYear = now.getFullYear()
   const [selMonth, setSelMonth] = useState<number>(value ? parseInt(value.slice(5, 7)) : 0)
-  const [selYear,  setSelYear]  = useState<number>(value ? parseInt(value.slice(0, 4)) : 0)
+  const [selYear, setSelYear] = useState<number>(value ? parseInt(value.slice(0, 4)) : 0)
 
   useEffect(() => {
     if (!value) { setSelMonth(0); setSelYear(0) }
@@ -833,7 +833,7 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     return (sessionStorage.getItem('adminDashboardGranularity') as Granularity) ?? 'daily'
   })
   const [selectedMonth, setSelectedMonth] = useState<string>('') // YYYY-MM (daily)
-  const [selectedYear,  setSelectedYear]  = useState<string>('') // YYYY    (monthly)
+  const [selectedYear, setSelectedYear] = useState<string>('') // YYYY    (monthly)
   const [kpi, setKpi] = useState<RollupKPI | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
@@ -864,7 +864,7 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }
 
   const activeFilter = selectedMonth || selectedYear
-  const staysData   = fillPeriodGaps(kpi?.stays_by_period ?? [], granularity, selectedMonth || undefined, selectedYear || undefined)
+  const staysData = fillPeriodGaps(kpi?.stays_by_period ?? [], granularity, selectedMonth || undefined, selectedYear || undefined)
   const revenueData = fillPeriodGaps(kpi?.revenue_by_period ?? [], granularity, selectedMonth || undefined, selectedYear || undefined)
 
   const xInterval = calcXInterval(staysData.length)
@@ -897,16 +897,16 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                 key={g}
                 onClick={() => switchGran(g)}
                 className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${granularity === g && !activeFilter
-                    ? 'bg-purple-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
                   }`}
               >
                 {GRAN_LABELS[g]}
               </button>
             ))}
           </div>
-          {granularity === 'daily'   && <MonthPicker value={selectedMonth} onChange={setSelectedMonth} />}
-          {granularity === 'monthly' && <YearPicker  value={selectedYear}  onChange={setSelectedYear}  />}
+          {granularity === 'daily' && <MonthPicker value={selectedMonth} onChange={setSelectedMonth} />}
+          {granularity === 'monthly' && <YearPicker value={selectedYear} onChange={setSelectedYear} />}
         </div>
       </div>
 
@@ -1021,7 +1021,7 @@ function computeLiveAmount(entryAtStr: string, tariff: TariffInfo | null): numbe
 }
 
 function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
-  const [stays, setStays]               = useState<ActiveStay[]>([])
+  const [stays, setStays] = useState<ActiveStay[]>([])
   const [staysLoading, setStaysLoading] = useState(true)
 
   const loadStays = useCallback(async () => {
@@ -1042,7 +1042,7 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   const [tariff, setTariff] = useState<TariffInfo | null>(null)
   useEffect(() => {
-    getEmployeeTariff().then(setTariff).catch(() => {})
+    getEmployeeTariff().then(setTariff).catch(() => { })
   }, [])
 
   const [generating, setGenerating] = useState(false)
@@ -1065,9 +1065,9 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     return () => clearInterval(id)
   }, [])
 
-  const [query, setQuery]                 = useState('')
+  const [query, setQuery] = useState('')
   const [searchLoading, setSearchLoading] = useState(false)
-  const [lookupResult, setLookupResult]   = useState<StayLookupResponse | null>(null)
+  const [lookupResult, setLookupResult] = useState<StayLookupResponse | null>(null)
 
   const handleSearch = async () => {
     if (!query.trim()) return
@@ -1084,8 +1084,8 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   const clearSearch = () => { setQuery(''); setLookupResult(null) }
 
-  const [cashModal, setCashModal]   = useState<{ stayId: string; amount: number } | null>(null)
-  const [paying, setPaying]         = useState(false)
+  const [cashModal, setCashModal] = useState<{ stayId: string; amount: number } | null>(null)
+  const [paying, setPaying] = useState(false)
 
   const handleCash = async () => {
     if (!cashModal) return

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,21 +9,80 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <style>
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-    .tab-btn.active { border-bottom: 3px solid #a855f7; color: #a855f7; }
-    .kpi-card { background: #1f2937; border-radius: 12px; padding: 20px; }
-    .kpi-value { font-size: 2rem; font-weight: 800; }
-    .kpi-label { font-size: 0.8rem; color: #9ca3af; margin-top: 4px; }
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .tab-btn.active {
+      border-bottom: 3px solid #a855f7;
+      color: #a855f7;
+    }
+
+    .kpi-card {
+      background: #1f2937;
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .kpi-value {
+      font-size: 2rem;
+      font-weight: 800;
+    }
+
+    .kpi-label {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-top: 4px;
+    }
+
     /* Toast */
-    #admin-toast { position: fixed; bottom: 24px; right: 24px; z-index: 9999; }
-    .toast-msg { padding: 12px 20px; border-radius: 10px; margin-top: 8px; font-size: 0.9rem; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.4); animation: slideIn 0.3s ease; }
-    .toast-msg.success { background: #065f46; }
-    .toast-msg.error   { background: #7f1d1d; }
-    .toast-msg.info    { background: #1e3a5f; }
-    @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: none; opacity: 1; } }
+    #admin-toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+    }
+
+    .toast-msg {
+      padding: 12px 20px;
+      border-radius: 10px;
+      margin-top: 8px;
+      font-size: 0.9rem;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      animation: slideIn 0.3s ease;
+    }
+
+    .toast-msg.success {
+      background: #065f46;
+    }
+
+    .toast-msg.error {
+      background: #7f1d1d;
+    }
+
+    .toast-msg.info {
+      background: #1e3a5f;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(120%);
+        opacity: 0;
+      }
+
+      to {
+        transform: none;
+        opacity: 1;
+      }
+    }
   </style>
 </head>
+
 <body class="bg-gray-900 text-gray-100 min-h-screen" style="background:#111827;">
 
   <!-- Navbar -->
@@ -145,10 +205,8 @@
     <div class="flex flex-col lg:flex-row gap-6 items-start">
       <div class="flex-1">
         <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
-          <img id="admin-camera-img"
-               class="w-full object-contain"
-               style="max-height: 520px; background:#000;"
-               alt="Cargando cámara…" />
+          <img id="admin-camera-img" class="w-full object-contain" style="max-height: 520px; background:#000;"
+            alt="Cargando cámara…" />
         </div>
         <p class="text-xs text-gray-500 mt-2 text-center">
           Video: <code>parking_crop_loop.mp4</code> · Anotado por el detector de visión
@@ -185,7 +243,8 @@
   <!-- Tab: En Vivo -->
   <div id="tab-live" class="tab-content p-4">
     <h2 class="text-xl font-bold mb-4">Vista en Vivo</h2>
-    <iframe src="/" class="w-full rounded-xl border border-gray-700" style="height:600px;" title="Mapa en vivo"></iframe>
+    <iframe src="/" class="w-full rounded-xl border border-gray-700" style="height:600px;"
+      title="Mapa en vivo"></iframe>
   </div>
 
   <!-- Toast container -->
@@ -194,14 +253,14 @@
   <script>
     const API = '';
     let authHeaders = {};
-    const PLOTLY_DARK = { paper_bgcolor: '#1f2937', plot_bgcolor: '#111827', font: { color: '#e5e7eb' }, margin: { t:10, b:30, l:40, r:10 } };
+    const PLOTLY_DARK = { paper_bgcolor: '#1f2937', plot_bgcolor: '#111827', font: { color: '#e5e7eb' }, margin: { t: 10, b: 30, l: 40, r: 10 } };
 
     function getToken() { return localStorage.getItem('access_token'); }
     function logout() { localStorage.clear(); window.location.href = '/admin/login'; }
 
     function checkAuth() {
       const token = getToken();
-      const role  = localStorage.getItem('role');
+      const role = localStorage.getItem('role');
       if (!token || role !== 'ADMIN') { window.location.href = '/admin/login'; return false; }
       authHeaders = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
       document.getElementById('nav-user').textContent = localStorage.getItem('username') || '';
@@ -209,7 +268,7 @@
     }
 
     async function apiFetch(url, opts = {}) {
-      const res = await fetch(url, { ...opts, headers: { ...authHeaders, ...(opts.headers||{}) } });
+      const res = await fetch(url, { ...opts, headers: { ...authHeaders, ...(opts.headers || {}) } });
       if (res.status === 401) { logout(); throw new Error('Unauthorized'); }
       return res;
     }
@@ -247,19 +306,19 @@
       try {
         const res = await apiFetch('/api/public/parking/state');
         const d = await res.json();
-        const free  = d.free  ?? 0;
+        const free = d.free ?? 0;
         const total = d.total ?? 0;
-        const occ   = total - free;
-        const pct   = total > 0 ? Math.round(d.occupancy_rate * 100) : 0;
+        const occ = total - free;
+        const pct = total > 0 ? Math.round(d.occupancy_rate * 100) : 0;
         document.getElementById('cam-free').textContent = free;
-        document.getElementById('cam-occ').textContent  = occ;
-        document.getElementById('cam-pct').textContent  = pct + '%';
-      } catch {}
+        document.getElementById('cam-occ').textContent = occ;
+        document.getElementById('cam-pct').textContent = pct + '%';
+      } catch { }
     }
 
-    function fmtNum(v, digits=0) {
+    function fmtNum(v, digits = 0) {
       if (v == null) return '—';
-      return new Intl.NumberFormat('es-AR', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(v);
+      return new Intl.NumberFormat('es-AR', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(v);
     }
 
     async function loadOperations() {
@@ -267,10 +326,10 @@
         const res = await apiFetch('/api/admin/kpis/operations');
         const d = await res.json();
 
-        document.getElementById('kpi-autos-hoy').textContent   = fmtNum(d.autos_hoy);
-        document.getElementById('kpi-duracion').textContent    = fmtNum(d.duracion_promedio_min, 1);
-        document.getElementById('kpi-hora-pico').textContent   = d.hora_pico || '—';
-        document.getElementById('kpi-tasa').textContent        = fmtNum(d.tasa_ocupacion_pct, 1) + '%';
+        document.getElementById('kpi-autos-hoy').textContent = fmtNum(d.autos_hoy);
+        document.getElementById('kpi-duracion').textContent = fmtNum(d.duracion_promedio_min, 1);
+        document.getElementById('kpi-hora-pico').textContent = d.hora_pico || '—';
+        document.getElementById('kpi-tasa').textContent = fmtNum(d.tasa_ocupacion_pct, 1) + '%';
 
         // Bar: autos por hora
         Plotly.react('chart-autos-hora', [{
@@ -278,7 +337,7 @@
           y: d.autos_por_hora.map(r => r.count),
           type: 'bar', marker: { color: '#3b82f6' }
         }], { ...PLOTLY_DARK, xaxis: { color: '#9ca3af' }, yaxis: { color: '#9ca3af', dtick: 1 } },
-        { displayModeBar: false, responsive: true });
+          { displayModeBar: false, responsive: true });
 
         // Line: autos por día
         Plotly.react('chart-autos-dia', [{
@@ -287,8 +346,8 @@
           type: 'scatter', mode: 'lines+markers',
           line: { color: '#60a5fa', width: 2 }, marker: { color: '#93c5fd' }
         }], { ...PLOTLY_DARK, xaxis: { color: '#9ca3af' }, yaxis: { color: '#9ca3af', dtick: 1 } },
-        { displayModeBar: false, responsive: true });
-      } catch(e) { console.error('ops error', e); }
+          { displayModeBar: false, responsive: true });
+      } catch (e) { console.error('ops error', e); }
     }
 
     async function loadFinance() {
@@ -296,10 +355,10 @@
         const res = await apiFetch('/api/admin/kpis/finance');
         const d = await res.json();
 
-        document.getElementById('kpi-ingresos-hoy').textContent  = '$' + fmtNum(d.ingresos_hoy);
-        document.getElementById('kpi-ingresos-mes').textContent  = '$' + fmtNum(d.ingresos_mes);
-        document.getElementById('kpi-ticket-prom').textContent   = '$' + fmtNum(d.ticket_promedio, 2);
-        document.getElementById('kpi-pendiente').textContent     = '$' + fmtNum(d.pendiente);
+        document.getElementById('kpi-ingresos-hoy').textContent = '$' + fmtNum(d.ingresos_hoy);
+        document.getElementById('kpi-ingresos-mes').textContent = '$' + fmtNum(d.ingresos_mes);
+        document.getElementById('kpi-ticket-prom').textContent = '$' + fmtNum(d.ticket_promedio, 2);
+        document.getElementById('kpi-pendiente').textContent = '$' + fmtNum(d.pendiente);
 
         // Bar: ingresos por día
         Plotly.react('chart-ing-dia', [{
@@ -307,7 +366,7 @@
           y: d.ingresos_por_dia.map(r => r.amount),
           type: 'bar', marker: { color: '#10b981' }
         }], { ...PLOTLY_DARK, xaxis: { color: '#9ca3af' }, yaxis: { color: '#9ca3af', tickprefix: '$' } },
-        { displayModeBar: false, responsive: true });
+          { displayModeBar: false, responsive: true });
 
         // Pie: por método
         const methods = { CASH: 'Efectivo', SIMULATED: 'Simulado', MERCADOPAGO: 'MercadoPago' };
@@ -318,9 +377,9 @@
           marker: { colors: ['#10b981', '#3b82f6', '#a855f7'] },
           textinfo: 'label+percent', insidetextorientation: 'radial',
           hole: 0.3,
-        }], { ...PLOTLY_DARK, margin: { t:10, b:10, l:10, r:10 } },
-        { displayModeBar: false, responsive: true });
-      } catch(e) { console.error('finance error', e); }
+        }], { ...PLOTLY_DARK, margin: { t: 10, b: 10, l: 10, r: 10 } },
+          { displayModeBar: false, responsive: true });
+      } catch (e) { console.error('finance error', e); }
     }
 
     async function refreshAll() {
@@ -333,7 +392,7 @@
         const res = await apiFetch('/api/admin/settings/tariff');
         const d = await res.json();
         document.getElementById('rate-input').value = d.rate_per_hour;
-      } catch {}
+      } catch { }
     }
 
     async function saveTariff() {
@@ -362,4 +421,5 @@
     }
   </script>
 </body>
+
 </html>
