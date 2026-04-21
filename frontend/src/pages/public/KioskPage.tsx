@@ -70,15 +70,7 @@ export function KioskPage() {
 
       {/* ── IDLE ── */}
       {phase === 'idle' && (
-        <div className="text-center animate-fade-in">
-          <p className="text-slate-400 text-lg mb-8">
-          </p>
-          {error && (
-            <div className="mb-6 bg-red-950/60 border border-red-700/50 text-red-300
-                            text-sm px-5 py-3 rounded-xl max-w-sm mx-auto">
-              {error}
-            </div>
-          )}
+        <div className="text-center animate-fade-in relative flex flex-col items-center">
           <button
             onClick={handleEntry}
             className="relative w-52 h-52 rounded-full bg-gradient-to-br from-blue-600 to-blue-800
@@ -93,6 +85,14 @@ export function KioskPage() {
             <Ticket className="w-16 h-16 mb-2" />
             <span className="font-bold text-xl tracking-wide">INGRESAR</span>
           </button>
+          <div className="h-16 mt-6 flex items-start justify-center">
+            {error && (
+              <div className="bg-red-950/60 border border-red-700/50 text-red-300
+                              text-sm px-5 py-3 rounded-xl max-w-sm text-center animate-fade-in">
+                {error}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

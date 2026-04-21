@@ -871,14 +871,25 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <AdminHeader
-          icon={<Calendar className="w-5 h-5" />}
-          title="Dashboards Operacionales"
-          lastRefresh={lastRefresh}
-          onRefresh={() => load(granularity, selectedMonth, selectedYear)}
-        />
-        {/* Granularity + filter */}
+      <div className="flex items-center gap-4 flex-wrap">
+        {/* Title — left */}
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <div className="text-purple-400"><Calendar className="w-5 h-5" /></div>
+          <h2 className="text-lg font-bold text-white">Dashboards</h2>
+        </div>
+        {/* Refresh — center */}
+        <div className="flex items-center gap-2 justify-center">
+          {lastRefresh && (
+            <span className="text-slate-600 text-xs hidden sm:block">
+              Act. {lastRefresh.toLocaleTimeString('es-AR')}
+            </span>
+          )}
+          <button onClick={() => load(granularity, selectedMonth, selectedYear)} className="btn-ghost text-xs">
+            <RefreshCw className="w-3.5 h-3.5" />
+            Actualizar
+          </button>
+        </div>
+        {/* Granularity + filter — right */}
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1">
             {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
