@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, Loader2, ParkingCircle, Ticket } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Loader2, Ticket } from 'lucide-react'
 import { createPublicEntry, type EntryResponse } from '../../api/parking'
 import { formatDateTime } from '../../lib/utils'
+import logoGeneral from '../../../logos/logogeneral.png'
 
 type KioskState = 'idle' | 'loading' | 'ticket'
 
@@ -60,12 +61,9 @@ export function KioskPage() {
         Mapa público
       </Link>
 
-      {/* Brand */}
-      <div className="flex items-center gap-3 mb-12">
-        <div>
-          <p className="font-bold text-white text-xl leading-none"></p>
-          <p className="text-slate-500 text-sm"></p>
-        </div>
+      {/* Brand logo */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2">
+        <img src={logoGeneral} alt="Sistema de Estacionamiento" className="h-14 w-auto object-contain" />
       </div>
 
       {/* ── IDLE ── */}

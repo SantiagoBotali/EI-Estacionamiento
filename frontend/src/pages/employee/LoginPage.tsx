@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, ParkingCircle, UserRound } from 'lucide-react'
+import { Eye, EyeOff, Loader2, UserRound } from 'lucide-react'
 import { login } from '../../api/auth'
+import logoGeneral from '../../../logos/logogeneral.png'
 
 export function EmployeeLoginPage() {
   const nav = useNavigate()
@@ -46,10 +47,8 @@ export function EmployeeLoginPage() {
 
           {/* Header */}
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl
-                            flex items-center justify-center mx-auto mb-4
-                            shadow-lg shadow-blue-900/50">
-              <ParkingCircle className="w-9 h-9 text-white" />
+            <div className="flex justify-center mb-4">
+              <img src={logoGeneral} alt="Sistema de Estacionamiento" className="h-20 w-auto object-contain" />
             </div>
             <h1 className="text-2xl font-bold text-white">Panel de Empleados</h1>
             <p className="text-slate-500 text-sm mt-1.5">Acceso exclusivo para personal autorizado</p>

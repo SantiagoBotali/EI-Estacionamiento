@@ -18,12 +18,14 @@
 12. [Interfaces de usuario](#12-interfaces-de-usuario)
 13. [Concurrencia y threading](#13-concurrencia-y-threading)
 14. [Decisiones de diseño y trade-offs](#14-decisiones-de-diseño-y-trade-offs)
+15. [Sistema de cierre de caja](#15-sistema-de-cierre-de-caja)
+16. [Reportes financieros](#16-reportes-financieros)
 
 ---
 
 ## 1. Visión general
 
-El sistema es una aplicación web monolítica que integra visión artificial, gestión de estadías y facturación para un estacionamiento de 14 espacios. Opera completamente en local sin dependencias externas obligatorias.
+El sistema es una aplicación web monolítica que integra visión artificial, gestión de estadías, facturación y cierre de caja para un estacionamiento de 14 espacios. Opera completamente en local sin dependencias externas obligatorias.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -62,8 +64,9 @@ El sistema es una aplicación web monolítica que integra visión artificial, ge
 | **Autenticación** | python-jose + passlib | 3.3.0 / 1.7.4 | JWT + bcrypt |
 | **Visión artificial** | OpenCV | 4.10.0 | Procesamiento de video |
 | **ML** | scikit-learn | 1.5.2 | Clasificador SVC |
-| **Templates** | Jinja2 | 3.1.4 | Renderizado HTML |
-| **Frontend** | Tailwind CDN + Plotly.js | — | UI + gráficos |
+| **Templates** | Jinja2 | 3.1.4 | Renderizado HTML (legacy) |
+| **Frontend** | Vite + React 18 + TypeScript + Tailwind CSS | — | SPA principal |
+| **Gráficos** | Plotly.js (legacy) | — | Gráficos en templates Jinja2 |
 | **Códigos de barras** | python-barcode | 0.15.1 | Tickets Code128 SVG |
 | **Imágenes** | Pillow | 10.4.0 | Procesamiento de imágenes |
 | **Async I/O** | aiofiles | 24.1.0 | Lectura de archivos async |
@@ -107,7 +110,7 @@ El sistema es una aplicación web monolítica que integra visión artificial, ge
                              │                                           │
                              │  Público: EventSource SSE → renderState() │
                              │  Empleado: <img src="...feed?token=...">  │
-                             │  Admin: Plotly.js + fetch KPIs            │
+                             │  Admin: React + fetch KPIs + reportes     │
                              └───────────────────────────────────────────┘
 ```
 
@@ -126,14 +129,15 @@ app/
 │   └── camera.py     │
 │
 ├── services/         ← CAPA DE NEGOCIO
-│   ├── vision_adapter.py  │  Lógica de dominio pura,
-│   ├── tariff.py          │  cálculo de precios,
-│   ├── ticketing.py       │  gestión de tickets,
-│   ├── stay_manager.py    │  ciclo de vida de estadías
-│   └── payment_service.py │
+│   ├── vision_adapter.py    │  Lógica de dominio pura,
+│   ├── tariff.py            │  cálculo de precios,
+│   ├── ticketing.py         │  gestión de tickets,
+│   ├── stay_manager.py      │  ciclo de vida de estadías
+│   ├── payment_service.py   │
+│   └── cash_closing_service.py  ← NUEVO: cierre de caja por turno
 │
 ├── models.py         ← CAPA DE DATOS (ORM)
-├── database.py       ← CAPA DE DATOS (engine + sesiones)
+├── database.py       ← CAPA DE DATOS (engine + sesiones + seed histórico)
 ├── schemas.py        ← DTOs (Pydantic v2)
 ├── security.py       ← SEGURIDAD (JWT + RBAC)
 └── config.py         ← CONFIGURACIÓN (pydantic-settings)
@@ -141,6 +145,19 @@ app/
 vision/
 ├── detector.py       ← HILO DE PROCESAMIENTO (fuera del event loop)
 └── utils.py          ← UTILIDADES CV (OpenCV + SVC)
+
+frontend/             ← SPA React (Vite + TypeScript + Tailwind)
+  src/
+    pages/
+      admin/DashboardPage.tsx   ← Panel admin (7 tabs)
+      employee/PanelPage.tsx    ← Panel empleado (5 tabs)
+    components/
+      Modal.tsx                 ← NUEVO: modal reutilizable
+      FinancialReportPrint.tsx  ← NUEVO: reporte imprimible/PDF
+    api/
+      admin.ts
+      employee.ts
+  dist/               ← build output (servido por FastAPI en /react/*)
 ```
 
 **Flujo de una petición HTTP típica:**
@@ -296,10 +313,34 @@ La clasificación ocurre cada 30 frames (~750ms), pero el frame de cámara se ac
 │ demo_override (bool)│    ┌──────────────────────┐    │
 └─────────────────────┘    │   SystemSetting      │    │
                            ├──────────────────────┤    │
-                           │ id (PK)              │    │
-                           │ key (UNIQUE)         │    │
+                           │ key (PK, UNIQUE)     │    │
                            │ value                │    │
+                           │                      │    │
+                           │  Claves conocidas:   │    │
+                           │  rate_per_hour       │    │
+                           │  minimum_charge      │    │
+                           │  grace_period_minutes│    │
+                           │  fondo_fijo          │    │
                            └──────────────────────┘    │
+
+┌────────────────────────────────────────────────┐
+│                CashClosing  ← NUEVO            │
+├────────────────────────────────────────────────┤
+│ id (PK, UUID)                                  │
+│ date (YYYY-MM-DD, ARS timezone)                │
+│ shift (1 | 2 | 3)                              │
+│ initial_cash   ← fondo fijo al abrir           │
+│ expected_cash  ← suma cobros CASH del turno    │
+│ actual_cash    ← dinero contado al cierre      │
+│ difference     ← actual - (initial + expected) │
+│ remesa         ← actual - initial (al cofre)   │
+│ is_demo (bool) ← registro de simulación        │
+│ notes                                          │
+│ status (OPEN | CLOSED)                         │
+│ created_at                                     │
+│ closed_at                                      │
+│ closed_by_id (FK→User)                         │
+└────────────────────────────────────────────────┘
 ```
 
 ### Ciclo de vida de una estadía (Stay)
@@ -346,17 +387,26 @@ GET  /docs                          → Swagger UI
 ### Acceso empleados (rol EMPLOYEE o ADMIN)
 
 ```
-GET  /api/employee/login            → Página de login (HTML)
-GET  /api/employee/panel            → Panel (HTML)
-POST /api/employee/stays/create     → Nueva estadía
-POST /api/employee/stays/lookup     → Buscar por código
-POST /api/employee/stays/{id}/close-cash   → Cobrar en efectivo
-GET  /api/employee/stays/active     → Listar estadías activas
-GET  /api/employee/demo/slots       → Listar espacios (demo)
-POST /api/employee/demo/slot/{id}   → Forzar estado de espacio
-POST /api/employee/demo/reset       → Limpiar overrides
-GET  /api/camera/feed?token=<JWT>   → Stream MJPEG
-POST /api/payments/simulate/{id}    → Pago simulado
+GET  /api/employee/login                              → Página de login (HTML)
+GET  /api/employee/panel                              → Panel (HTML)
+POST /api/employee/stays/create                       → Nueva estadía
+POST /api/employee/stays/lookup                       → Buscar por código
+POST /api/employee/stays/{id}/close-cash              → Cobrar en efectivo
+GET  /api/employee/stays/active                       → Listar estadías activas
+GET  /api/employee/demo/slots                         → Listar espacios (demo)
+POST /api/employee/demo/slot/{id}                     → Forzar estado de espacio
+POST /api/employee/demo/reset                         → Limpiar overrides
+GET  /api/camera/feed?token=<JWT>                     → Stream MJPEG
+POST /api/payments/simulate/{id}                      → Pago simulado
+
+── Cierre de Caja (NUEVO) ──────────────────────────────────────────────────
+POST   /api/employee/cash-closings                    → Abrir cierre de turno
+GET    /api/employee/cash-closings                    → Listar cierres (?date=YYYY-MM-DD)
+GET    /api/employee/cash-closings/summary/today      → Resumen del día (todos los turnos)
+GET    /api/employee/cash-closings/{shift}/suggested-initial → Fondo fijo sugerido
+PATCH  /api/employee/cash-closings/{id}/close         → Cerrar turno con monto real
+PATCH  /api/employee/cash-closings/{id}/quick-close   → Cierre rápido demo (sin diferencia)
+DELETE /api/employee/cash-closings/reset-today        → Eliminar cierres de simulación de hoy
 ```
 
 ### Acceso administrador (rol ADMIN)
@@ -366,6 +416,12 @@ GET  /api/admin/login               → Página de login (HTML)
 GET  /api/admin/dashboard           → Dashboard (HTML)
 GET  /api/admin/kpis/operations     → KPIs operativos (JSON)
 GET  /api/admin/kpis/finance        → KPIs financieros (JSON)
+GET  /api/admin/kpis/rollup         → KPIs con granularidad configurable (NUEVO)
+                                       ?granularity=daily|monthly|yearly
+                                       ?month=YYYY-MM  (vista diaria de un mes)
+                                       ?year=YYYY      (vista mensual de un año)
+GET  /api/admin/reports/financial   → Reporte financiero rango custom (NUEVO)
+                                       ?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
 GET  /api/admin/settings/tariff     → Consultar tarifa
 PUT  /api/admin/settings/tariff     → Actualizar tarifa
 ```
@@ -373,21 +429,23 @@ PUT  /api/admin/settings/tariff     → Actualizar tarifa
 ### Mapa visual de acceso por rol
 
 ```
-Endpoint                            PÚBLICO   EMPLOYEE   ADMIN
-─────────────────────────────────   ───────   ────────   ─────
-GET /                                  ✓         ✓         ✓
-GET /kiosk                             ✓         ✓         ✓
-POST /api/public/entry                 ✓         ✓         ✓
-GET /api/public/parking/state          ✓         ✓         ✓
-GET /api/public/parking/stream         ✓         ✓         ✓
-POST /auth/token                       ✓         ✓         ✓
-GET /api/employee/panel                ✗         ✓         ✓
-POST /api/employee/stays/*             ✗         ✓         ✓
-GET /api/camera/feed?token=            ✗         ✓         ✓
-POST /api/payments/simulate/*          ✗         ✓         ✓
-GET /api/admin/dashboard               ✗         ✗         ✓
-GET /api/admin/kpis/*                  ✗         ✗         ✓
-PUT /api/admin/settings/tariff         ✗         ✗         ✓
+Endpoint                                       PÚBLICO   EMPLOYEE   ADMIN
+────────────────────────────────────────────   ───────   ────────   ─────
+GET /                                             ✓         ✓         ✓
+GET /kiosk                                        ✓         ✓         ✓
+POST /api/public/entry                            ✓         ✓         ✓
+GET /api/public/parking/state                     ✓         ✓         ✓
+GET /api/public/parking/stream                    ✓         ✓         ✓
+POST /auth/token                                  ✓         ✓         ✓
+GET /api/employee/panel                           ✗         ✓         ✓
+POST /api/employee/stays/*                        ✗         ✓         ✓
+GET /api/camera/feed?token=                       ✗         ✓         ✓
+POST /api/payments/simulate/*                     ✗         ✓         ✓
+POST/GET/PATCH /api/employee/cash-closings/*      ✗         ✓         ✓
+GET /api/admin/dashboard                          ✗         ✗         ✓
+GET /api/admin/kpis/*                             ✗         ✗         ✓
+GET /api/admin/reports/financial                  ✗         ✗         ✓
+PUT /api/admin/settings/tariff                    ✗         ✗         ✓
 ```
 
 ---
@@ -447,11 +505,11 @@ GET /api/camera/feed?token=eyJhbGciOiJIUzI1NiJ9...
          /     \
         ▼       ▼
    EMPLOYEE   (todos los accesos de EMPLOYEE)
-      │         + dashboard, KPIs, configuración
+      │         + dashboard, KPIs, reportes, configuración
       ▼
   (accesos de EMPLOYEE)
   panel, estadías, cámara,
-  pagos, demo
+  pagos, cierre de caja
 ```
 
 Token JWT — payload:
@@ -541,8 +599,7 @@ Token JWT — payload:
       │  OperationsKPI (JSON)      │                     │
       │ ◀──────────────────────────│                     │
       │                            │                     │
-      │  Plotly.js renderiza       │                     │
-      │  gráficos de barras        │                     │
+      │  React renderiza gráficos  │                     │
 ```
 
 ---
@@ -577,15 +634,15 @@ Token JWT — payload:
 ### Tabla de ejemplos
 
 ```
-Duración    Tiempo billable  Redondeo  Cálculo        Total
-─────────   ───────────────  ────────  ─────────      ─────
-0–15 min    0                —         gracia          $0
-20 min      5 min            0.25h     0.25 × $800    $300 (mín)
-30 min      15 min           0.25h     0.25 × $800    $300 (mín)
-45 min      30 min           0.50h     0.50 × $800    $400
-60 min      45 min           0.75h     0.75 × $800    $600
-90 min      75 min           1.25h     1.25 × $800    $1.000
-120 min     105 min          1.75h     1.75 × $800    $1.400
+Duración    Tiempo billable  Redondeo  Cálculo          Total
+─────────   ───────────────  ────────  ─────────        ─────
+0–15 min    0                —         gracia            $0
+20 min      5 min            0.25h     0.25 × $1200     $300 (mín)
+30 min      15 min           0.25h     0.25 × $1200     $300 (mín)
+45 min      30 min           0.50h     0.50 × $1200     $600
+60 min      45 min           0.75h     0.75 × $1200     $900
+90 min      75 min           1.25h     1.25 × $1200     $1.500
+120 min     105 min          1.75h     1.75 × $1200     $2.100
 ```
 
 La tarifa por hora es configurable desde la UI de administración y se persiste en `SystemSetting`.
@@ -646,22 +703,31 @@ http://localhost:8000/
 ├── /                          → Mapa público (SSE, sin auth)
 ├── /kiosk                     → Kiosco de entrada (sin auth)
 │
-├── /employee/login            → Login empleado
-│   └── /employee/panel        → Panel empleado [EMPLOYEE|ADMIN]
-│       ├── Tab: Mapa
-│       ├── Tab: Cámara (MJPEG)
-│       ├── Tab: Buscar estadía
-│       ├── Tab: Estadías activas
-│       ├── Tab: Nueva estadía
-│       └── Tab: Demo
+├── /employee/login            → Login empleado (Jinja2, legacy)
+│   └── /employee/panel        → Panel empleado HTML (legacy)
 │
-├── /admin/login               → Login administrador
-│   └── /admin/dashboard       → Dashboard admin [ADMIN]
-│       ├── Tab: Operaciones (KPIs + Plotly)
-│       ├── Tab: Finanzas (KPIs + Plotly)
-│       ├── Tab: Cámara (MJPEG + stats)
-│       └── Tab: En Vivo (iframe del mapa)
+├── /admin/login               → Login administrador (Jinja2, legacy)
+│   └── /admin/dashboard       → Dashboard admin HTML (legacy)
 │
+└── http://localhost:5173/react/  → SPA React (principal)
+    ├── Login unificado (admin/empleado)
+    │
+    ├── Panel Empleado [EMPLOYEE|ADMIN] — 5 tabs:
+    │   ├── Tab: map      → Mapa de espacios (SSE)
+    │   ├── Tab: camera   → Feed MJPEG
+    │   ├── Tab: stays    → Estadías activas + búsqueda
+    │   ├── Tab: new      → Nueva estadía manual
+    │   └── Tab: cash     → Cierre de caja (NUEVO)
+    │
+    └── Panel Admin [ADMIN] — 7 tabs:
+        ├── Tab: operations  → KPIs operativos + gráficos
+        ├── Tab: finance     → KPIs financieros + gráficos
+        ├── Tab: stays       → Todas las estadías
+        ├── Tab: dashboards  → Dashboards operacionales
+        ├── Tab: reports     → Reporte financiero PDF/impresión (NUEVO)
+        ├── Tab: camera      → Feed MJPEG + stats
+        └── Tab: live        → iframe del mapa público
+
 └── /docs                      → Swagger UI (FastAPI auto-generado)
 ```
 
@@ -710,6 +776,8 @@ http://localhost:8000/
 │  │  - GET /api/camera/feed (MJPEG, cada 40ms)          │  │
 │  │  - POST /api/employee/stays/create                  │  │
 │  │  - GET /api/admin/kpis/operations                   │  │
+│  │  - POST /api/employee/cash-closings                 │  │
+│  │  - GET /api/admin/reports/financial                 │  │
 │  │  - ... (todos los handlers HTTP)                    │  │
 │  │                                                      │  │
 │  │  run_in_executor() para operaciones bloqueantes:     │  │
@@ -822,4 +890,182 @@ http://localhost:8000/
 
 ---
 
-*Última actualización: Febrero 2026*
+### Cierre de caja: modo real vs. modo demo
+
+**Decisión:** El modelo `CashClosing` tiene un flag `is_demo` que separa registros de simulación de registros reales.
+
+**Justificación:** Los empleados necesitan practicar el flujo de cierre sin afectar la contabilidad real. Los registros demo se pueden resetear con un solo endpoint; los registros reales son inmutables desde la UI.
+
+**Trade-off:** Ambos tipos viven en la misma tabla, lo que requiere filtrar por `is_demo` en todas las consultas de KPIs. Se acepta esta complejidad para mantener un esquema simple.
+
+---
+
+### Datos históricos sintéticos en seed
+
+**Decisión:** Al inicializar una base de datos vacía, `seed_db()` genera estadías cerradas desde enero 2024 hasta hoy (60–100 por mes).
+
+**Justificación:** Los gráficos y reportes financieros son inútiles con una DB vacía. El seed permite demostraciones realistas desde el primer arranque.
+
+**Trade-off:** El seed puede tomar varios segundos al arrancar en una DB nueva. Si ya existen stays en la DB, el seed no se ejecuta.
+
+---
+
+## 15. Sistema de cierre de caja
+
+### Turnos del día (ARS, UTC-3)
+
+```
+Turno 1: 06:00 – 14:00 ARS
+Turno 2: 14:00 – 22:00 ARS
+Turno 3: 22:00 – 06:00 ARS (día siguiente)
+```
+
+### Modelo contable (fondo fijo)
+
+Cada turno opera con un **fondo fijo** que se mantiene en caja como base de cambio. Al cierre se retira solo el excedente.
+
+```
+┌────────────────────────────────────────────────────────┐
+│               MODELO CONTABLE DE CIERRE                │
+│                                                        │
+│  Apertura:                                             │
+│    initial_cash = fondo_fijo (ej. $5.000)             │
+│    expected_cash = Σ cobros CASH aprobados del turno  │
+│                                                        │
+│  Cierre (empleado cuenta el dinero físico):           │
+│    actual_cash = dinero contado en caja               │
+│                                                        │
+│  Cálculos automáticos:                                 │
+│    difference = actual - (initial + expected)          │
+│                 > 0: sobrante / < 0: faltante          │
+│                                                        │
+│    remesa = actual - initial                           │
+│             (monto a retirar hacia la caja fuerte)    │
+│             El initial permanece en caja               │
+└────────────────────────────────────────────────────────┘
+```
+
+### Flujo de cierre de turno
+
+```
+  Empleado (Tab: Caja)          Backend                   DB
+      │                             │                      │
+      │  Selecciona turno actual    │                      │
+      │  GET /cash-closings/        │                      │
+      │    {shift}/suggested-initial│                      │
+      │ ───────────────────────────▶│                      │
+      │                             │ get_next_shift_      │
+      │                             │ initial_cash()       │
+      │                             │ → fondo_fijo         │
+      │  { suggested: 5000 }        │                      │
+      │ ◀───────────────────────────│                      │
+      │                             │                      │
+      │  POST /cash-closings        │                      │
+      │  { shift: 1,                │                      │
+      │    initial_cash: 5000 }     │                      │
+      │ ───────────────────────────▶│                      │
+      │                             │ open_cash_closing()  │
+      │                             │ INSERT CashClosing   │
+      │                             │   status=OPEN        │
+      │                             │   expected_cash=Σcash│
+      │  { id, status: OPEN, ... }  │                      │
+      │ ◀───────────────────────────│                      │
+      │                             │                      │
+      │  Cuenta dinero físico...    │                      │
+      │                             │                      │
+      │  PATCH /cash-closings/      │                      │
+      │    {id}/close               │                      │
+      │  { actual_cash: 8500 }      │                      │
+      │ ───────────────────────────▶│                      │
+      │                             │ close_cash_closing() │
+      │                             │ recalc expected      │
+      │                             │ difference = 8500 -  │
+      │                             │   (5000 + 3000) = 500│
+      │                             │ remesa = 8500 - 5000 │
+      │                             │       = 3500         │
+      │                             │ UPDATE status=CLOSED │
+      │  { difference, remesa }     │                      │
+      │ ◀───────────────────────────│                      │
+```
+
+### Validaciones de secuencia
+
+El backend impone que los turnos se abran en orden (1 → 2 → 3) y que cada turno esté cerrado antes de abrir el siguiente. Esta validación puede omitirse en modo `force_demo=True`.
+
+### Resumen del día
+
+```
+GET /api/employee/cash-closings/summary/today
+
+Respuesta:
+{
+  "date": "2026-05-18",
+  "current_shift": 2,
+  "closings": [          ← todos (real + demo), ordenados por turno
+    { "shift": 1, "status": "CLOSED", "remesa": 3500, ... },
+    { "shift": 2, "status": "OPEN",   "expected_cash": 1200, ... }
+  ],
+  "total_expected": 4700,   ← solo registros reales
+  "total_remesa": 3500,
+  "total_difference": 500,
+  "open_closing": { ... },
+  "fondo_fijo": 5000.0
+}
+```
+
+---
+
+## 16. Reportes financieros
+
+### Endpoint de reporte por rango de fechas
+
+```
+GET /api/admin/reports/financial?from_date=2026-05-01&to_date=2026-05-18
+```
+
+**Datos que devuelve:**
+
+| Campo | Descripción |
+|-------|-------------|
+| `summary.total_revenue` | Ingresos totales del rango |
+| `summary.approved_payments` | Cantidad de pagos aprobados |
+| `summary.avg_ticket` | Ticket promedio |
+| `summary.total_stays` | Estadías que ingresaron en el rango |
+| `summary.avg_duration_min` | Duración promedio (estadías cerradas) |
+| `by_method` | Desglose por método de pago (CASH / MERCADOPAGO) |
+| `revenue_by_hour` | Ingresos agrupados por hora del día |
+| `top_hours` | Top 3 horas con mayor recaudación |
+| `top_days` | Top días con mayor recaudación, ordenados desc |
+
+### Componente de impresión / PDF
+
+`FinancialReportPrint.tsx` renderiza el reporte como HTML estilizado listo para imprimir o exportar a PDF (via `html2pdf.js`). El layout incluye:
+
+- Encabezado con logo y período
+- 5 KPI cards (ingresos, pagos, ticket promedio, estadías, duración)
+- Gráfico de torta (SVG puro) por método de pago
+- Gráfico de barras de ingresos por hora
+- Tabla de top días
+- Tabla de detalle por método
+
+El renderizado usa CSS `@media print` con `print-color-adjust: exact` para preservar colores al imprimir o generar PDF.
+
+### Rollup de KPIs con granularidad
+
+```
+GET /api/admin/kpis/rollup?granularity=daily        → últimos 30 días
+GET /api/admin/kpis/rollup?granularity=monthly      → últimos 12 meses
+GET /api/admin/kpis/rollup?granularity=yearly       → histórico
+GET /api/admin/kpis/rollup?month=2026-05            → días de mayo 2026
+GET /api/admin/kpis/rollup?year=2026                → meses de 2026
+```
+
+Retorna `RollupKPI` con:
+- `stays_by_period` y `revenue_by_period` para gráficos comparativos
+- `total_stays`, `avg_duration_min`, `peak_period`
+- `total_revenue`, `avg_ticket`, `pending` (tiempo real)
+- `by_method` para desglose por método de pago
+
+---
+
+*Última actualización: Mayo 2026*

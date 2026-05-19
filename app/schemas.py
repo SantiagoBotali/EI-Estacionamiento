@@ -161,3 +161,48 @@ class RollupKPI(BaseModel):
     stays_by_period: list[dict]    # [{period, count}]
     revenue_by_period: list[dict]  # [{period, amount}]
     by_method: list[dict]          # [{method, amount}]
+
+
+# ─── Cash Closing ────────────────────────────────────────────────────────────
+
+class CashClosingOpen(BaseModel):
+    shift: int
+    initial_cash: float = 0.0
+    force_demo: bool = False
+    is_demo: bool = False
+
+
+class CashClosingClose(BaseModel):
+    actual_cash: float
+    notes: Optional[str] = None
+
+
+class CashClosingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    date: str
+    shift: int
+    initial_cash: float
+    expected_cash: float
+    actual_cash: Optional[float] = None
+    difference: Optional[float] = None
+    remesa: Optional[float] = None
+    is_demo: bool = False
+    notes: Optional[str] = None
+    status: str
+    created_at: datetime
+    closed_at: Optional[datetime] = None
+    closed_by_id: Optional[int] = None
+
+
+class TodaySummary(BaseModel):
+    date: str
+    current_shift: int
+    closings: list[CashClosingOut]
+    total_expected: float
+    total_actual: Optional[float] = None
+    total_remesa: Optional[float] = None
+    total_difference: Optional[float] = None
+    open_closing: Optional[CashClosingOut] = None
+    fondo_fijo: float = 5000.0

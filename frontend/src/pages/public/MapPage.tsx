@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom'
-import { Car, Loader2, ParkingCircle, Users, Wifi, WifiOff, Zap } from 'lucide-react'
+import { Car, Loader2, Users, Wifi, WifiOff, Zap } from 'lucide-react'
 import { useParkingSSE } from '../../hooks/useParkingSSE'
 import { useClock } from '../../hooks/useClock'
 import { ParkingMap } from '../../components/ParkingMap'
+import logoGeneral from '../../../logos/logogeneral.png'
 
 export function MapPage() {
   const { state, status } = useParkingSSE()
@@ -22,12 +23,9 @@ export function MapPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           {/* Brand */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-700
-                            rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/40">
-              <ParkingCircle className="w-5 h-5 text-white" />
-            </div>
+            <img src={logoGeneral} alt="Sistema de Estacionamiento" className="h-9 w-auto object-contain" />
             <div>
-              <p className="font-bold text-white leading-none text-base">Estacionamiento SDG+</p>
+              <p className="font-bold text-white leading-none text-base">Sistema de estacionamiento</p>
               <p className="text-[11px] text-slate-500 leading-none mt-0.5">
                 Sistema Inteligente de Gestión
               </p>

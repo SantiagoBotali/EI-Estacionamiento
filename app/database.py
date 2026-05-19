@@ -53,9 +53,11 @@ def init_db():
 
 def _migrate():
     """Add new columns to existing tables without dropping data (SQLite safe)."""
-    from sqlalchemy import text
+    from sqlalchemy import text, inspect
     additions = [
         ("stays", "slot_vision_id", "INTEGER"),
+        ("cash_closings", "remesa", "REAL"),
+        ("cash_closings", "is_demo", "INTEGER DEFAULT 0"),
     ]
     with engine.connect() as conn:
         for table, column, col_type in additions:
@@ -64,6 +66,12 @@ def _migrate():
             if column not in existing:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
                 conn.commit()
+
+        # Create cash_closings table if it doesn't exist (for existing DBs)
+        inspector = inspect(engine)
+        if "cash_closings" not in inspector.get_table_names():
+            from app.models import CashClosing
+            CashClosing.__table__.create(bind=engine)
 
 
 def seed_db():
@@ -98,6 +106,7 @@ def seed_db():
             "rate_per_hour": "1200.0",
             "minimum_charge": "300.0",
             "grace_period_minutes": "15",
+            "fondo_fijo": "5000.0",
         }
         for key, value in defaults.items():
             existing = db.execute(

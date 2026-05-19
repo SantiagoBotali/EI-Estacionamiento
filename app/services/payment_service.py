@@ -3,7 +3,7 @@ app/services/payment_service.py — MercadoPago and cash payment handling.
 """
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import mercadopago
 from fastapi import HTTPException
@@ -37,6 +37,7 @@ def simulate_payment(db: Session, stay_id: str, closed_by_id: int | None = None)
     from app.database import get_setting
 
     now = datetime.now(timezone.utc)
+    now_ars = now.replace(tzinfo=None) - timedelta(hours=3)
     rate = float(get_setting(db, "rate_per_hour", "1200.0"))
     minimum = float(get_setting(db, "minimum_charge", "300.0"))
     grace = int(get_setting(db, "grace_period_minutes", "15"))
@@ -52,7 +53,7 @@ def simulate_payment(db: Session, stay_id: str, closed_by_id: int | None = None)
     )
     db.add(payment)
 
-    stay.exit_at = now
+    stay.exit_at = now_ars
     stay.amount_paid = amount
     stay.amount_expected = amount
     stay.payment_method = PaymentMethod.SIMULATED
@@ -279,6 +280,7 @@ def check_mp_payment(db: Session, stay_id: str) -> dict:
     mp_payment_id = str(approved["id"])
     mp_amount = float(approved.get("transaction_amount", stay.amount_expected or 0))
     now = datetime.now(timezone.utc)
+    now_ars = now.replace(tzinfo=None) - timedelta(hours=3)
 
     # Update or create Payment record
     pending_payment = db.execute(
@@ -309,7 +311,7 @@ def check_mp_payment(db: Session, stay_id: str) -> dict:
         )
         db.add(new_payment)
 
-    stay.exit_at = now
+    stay.exit_at = now_ars
     stay.amount_paid = mp_amount
     stay.payment_method = PaymentMethod.MERCADOPAGO
     stay.status = StayStatus.CLOSED

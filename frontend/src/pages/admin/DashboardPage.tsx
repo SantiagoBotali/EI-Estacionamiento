@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Activity, BarChart2, Calendar, Camera, Car, ClipboardList, Clock, CreditCard,
-  DollarSign, Loader2, LogOut, MapPin, Plus,
+  DollarSign, Download, Loader2, LogOut, MapPin, Plus, Printer,
   RefreshCw, Search, Settings, ShieldCheck, Sparkles, TrendingUp, Users, Wifi, WifiOff, X, Zap,
 } from 'lucide-react'
 import {
@@ -10,9 +10,10 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis, Legend, Line, LineChart,
 } from 'recharts'
 import { clearAuth, getRole, getUsername } from '../../api/client'
+import logoAdmin from '../../../logos/logoadmin.png'
 import {
-  getOperationsKPI, getFinanceKPI, getTariffSettings, updateTariff, getRollupKPI,
-  type FinanceKPI, type OperationsKPI, type TariffSettings, type RollupKPI,
+  getOperationsKPI, getFinanceKPI, getTariffSettings, updateTariff, getRollupKPI, getFinancialReport,
+  type FinanceKPI, type OperationsKPI, type TariffSettings, type RollupKPI, type FinancialReportData,
 } from '../../api/admin'
 import {
   getActiveStays, lookupStay, closeCash,
@@ -25,18 +26,21 @@ import {
 } from '../../api/parking'
 import { CameraFeed } from '../../components/CameraFeed'
 import { ParkingMap } from '../../components/ParkingMap'
+import { FinancialReportPrint } from '../../components/FinancialReportPrint'
+import { Modal } from '../../components/Modal'
 import { useParkingSSE } from '../../hooks/useParkingSSE'
 import { useClock } from '../../hooks/useClock'
 import { useToast } from '../../components/ui/Toast'
 import { formatCurrency, formatDateTime, formatDuration, getStatusBadge, getStatusLabel } from '../../lib/utils'
 
-type Tab = 'operations' | 'finance' | 'camera' | 'live' | 'dashboards' | 'stays'
+type Tab = 'operations' | 'finance' | 'camera' | 'live' | 'dashboards' | 'stays' | 'reports'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'operations', icon: <BarChart2 className="w-5 h-5" />, label: 'Operaciones' },
   { id: 'finance', icon: <DollarSign className="w-5 h-5" />, label: 'Finanzas' },
   { id: 'stays', icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías' },
   { id: 'dashboards', icon: <Calendar className="w-5 h-5" />, label: 'Dashboards' },
+  { id: 'reports', icon: <TrendingUp className="w-5 h-5" />, label: 'Reportes' },
   { id: 'camera', icon: <Camera className="w-5 h-5" />, label: 'Cámara' },
   { id: 'live', icon: <MapPin className="w-5 h-5" />, label: 'En vivo' },
 ]
@@ -81,12 +85,9 @@ export function AdminDashboardPage() {
         {/* Brand */}
         <div className="px-3 lg:px-5 py-5 border-b border-slate-800/60">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-purple-500 to-purple-700
-                            rounded-xl flex items-center justify-center shrink-0">
-              <ShieldCheck className="w-5 h-5 text-white" />
-            </div>
+            <img src={logoAdmin} alt="Panel de Administración" className="h-9 w-auto object-contain shrink-0" />
             <div className="hidden lg:block overflow-hidden">
-              <p className="font-bold text-white text-sm leading-none truncate">SDG+</p>
+              <p className="font-bold text-white text-sm leading-none truncate">Panel de admin</p>
               <p className="text-[11px] text-slate-500 leading-none mt-0.5">Administración</p>
             </div>
           </div>
@@ -130,7 +131,6 @@ export function AdminDashboardPage() {
             </div>
             <div className="overflow-hidden">
               <p className="text-slate-200 text-xs font-semibold truncate">{username}</p>
-              <p className="text-slate-500 text-[10px]">{role}</p>
             </div>
           </div>
           <button
@@ -152,6 +152,7 @@ export function AdminDashboardPage() {
           {tab === 'finance' && <FinanceTab toast={toast} />}
           {tab === 'stays' && <StaysTab toast={toast} />}
           {tab === 'dashboards' && <DashboardsTab toast={toast} />}
+          {tab === 'reports' && <ReportsTab toast={toast} />}
           {tab === 'camera' && <CameraTab toast={toast} />}
           {tab === 'live' && <LiveTab />}
         </div>
@@ -1018,6 +1019,336 @@ function computeLiveAmount(entryAtStr: string, tariff: TariffInfo | null): numbe
   } catch {
     return 0
   }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Tab: Reportes Financieros
+───────────────────────────────────────────────────────────── */
+function ReportsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [report, setReport] = useState<FinancialReportData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const reportZoomRef = useRef<HTMLDivElement>(null)
+
+  // Set default dates to last 30 days
+  useEffect(() => {
+    const today = new Date()
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
+    setFromDate(thirtyDaysAgo.toISOString().split('T')[0])
+    setToDate(today.toISOString().split('T')[0])
+  }, [])
+
+  const generateReport = async () => {
+    if (!fromDate || !toDate) {
+      toast('error', 'Selecciona fechas válidas')
+      return
+    }
+    if (new Date(fromDate) > new Date(toDate)) {
+      toast('error', 'La fecha inicial debe ser menor que la final')
+      return
+    }
+    setLoading(true)
+    try {
+      const data = await getFinancialReport(fromDate, toDate)
+      setReport(data)
+      setLastRefresh(new Date())
+    } catch (e) {
+      toast('error', (e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDownloadPDF = async () => {
+    if (!report) return
+    setDownloading(true)
+    // Temporarily reset zoom so html2canvas captures at full resolution
+    if (reportZoomRef.current) reportZoomRef.current.style.zoom = '1'
+    await new Promise(r => setTimeout(r, 60))
+    try {
+      const element = document.querySelector('.financial-report-container') as HTMLElement
+      if (!element) return
+      const html2canvas = (await import('html2canvas')).default
+      const { jsPDF } = await import('jspdf')
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+      })
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = 8
+      const ratio = Math.min((pageW - margin * 2) / canvas.width, (pageH - margin * 2) / canvas.height)
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, canvas.width * ratio, canvas.height * ratio)
+      pdf.save(`Reporte-Financiero-${report.period.from}-${report.period.to}.pdf`)
+    } catch {
+      toast('error', 'Error al generar el PDF')
+    } finally {
+      if (reportZoomRef.current) reportZoomRef.current.style.zoom = '0.8'
+      setDownloading(false)
+    }
+  }
+
+  const handlePrint = () => {
+    if (!report) return
+
+    // Create a new window with just the report
+    const printWindow = window.open('', '_blank', 'width=1200,height=800')
+    if (!printWindow) return
+
+    const reportHTML = document.querySelector('.financial-report-container')?.outerHTML || ''
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reporte Financiero</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+
+          html, body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: white;
+            color: #0f172a;
+            padding: 0;
+            margin: 0;
+          }
+
+          .financial-report-container {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: white;
+            color: #0f172a;
+            padding: 22px;
+            max-width: 1200px;
+            margin: 0 auto;
+          }
+          .financial-report-container * { box-sizing: border-box; }
+          .report-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px; }
+          .report-brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+          .report-logo { width: 48px; height: 48px; border-radius: 10px; background: #0b3b91; color: white; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; flex-shrink: 0; }
+          .report-brand h2 { margin: 0; font-size: 28px; line-height: 1; color: #0b1f4d; font-weight: 800; }
+          .report-brand span { font-size: 11px; color: #64748b; letter-spacing: 0.5px; margin: 0; }
+          .report-title { text-align: center; flex: 1; }
+          .report-title h1 { margin: 0 0 6px 0; font-size: 38px; color: #0b2d73; font-weight: 800; }
+          .report-title p { margin: 0; color: #64748b; font-size: 13px; }
+          .report-period { border: 1px solid #dbe3ef; padding: 13px; border-radius: 12px; min-width: 190px; flex-shrink: 0; }
+          .report-period h3 { margin: 0 0 10px 0; color: #0b2d73; font-size: 14px; font-weight: 600; }
+          .report-period p { display: flex; justify-content: space-between; margin: 0 0 6px 0; color: #334155; font-size: 12px; }
+          .report-section-title { margin: 14px 0 12px 0; font-size: 16px; font-weight: 700; color: #0b2d73; }
+          .report-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+          .report-card { background: white; border: 1px solid #dbe3ef; border-radius: 14px; padding: 15px; }
+          .report-kpi { display: flex; flex-direction: column; gap: 9px; }
+          .report-kpi span { font-size: 11px; color: #64748b; font-weight: 600; line-height: 1.4; margin: 0; }
+          .report-kpi strong { margin: 0; font-size: 24px; color: #0b1f4d; }
+          .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+          .report-chart { height: 190px; background: linear-gradient(to top, #dbeafe 1px, transparent 1px); background-size: 100% 36px; border-radius: 10px; position: relative; overflow: hidden; }
+          .report-chart-bars { position: absolute; bottom: 14px; left: 14px; right: 14px; height: 144px; display: flex; align-items: flex-end; gap: 8px; }
+          .report-bar { flex: 1; background: #0b3b91; border-radius: 3px 3px 0 0; }
+          .report-chart-labels { display: flex; padding: 0 14px; gap: 8px; margin-top: 5px; min-height: 12px; }
+          .report-bar-label { flex: 1; min-width: 0; text-align: center; font-size: 8px; color: #475569; line-height: 1; overflow: hidden; white-space: nowrap; }
+          .report-pie-wrapper { display: flex; align-items: center; justify-content: center; gap: 28px; padding: 10px 0; }
+          .report-pie-svg { width: 190px; height: 190px; flex-shrink: 0; }
+          .report-legend { display: flex; flex-direction: column; gap: 12px; }
+          .report-legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 0; }
+          .report-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+          .report-dot.blue-dark { background: #0b3b91; }
+          .report-dot.blue-light { background: #2890ff; }
+          .report-hours-table { margin-top: 12px; border: 1px solid #dbe3ef; border-radius: 10px; overflow: hidden; }
+          .report-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+          .report-table thead { background: #0b2d73; color: white; }
+          .report-table th { padding: 9px 11px; text-align: left; font-size: 13px; font-weight: 600; margin: 0; }
+          .report-table td { padding: 9px 11px; border-bottom: 1px solid #e2e8f0; font-size: 13px; margin: 0; }
+          .report-table tbody tr:hover { background: #f8fafc; }
+          .report-footer { margin-top: 16px; display: flex; justify-content: space-between; color: #64748b; font-size: 12px; }
+
+          @page {
+            size: A4;
+            margin: 10mm;
+          }
+
+          @media print {
+            * {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+
+            body, html {
+              background: white;
+              margin: 0;
+              padding: 0;
+            }
+
+            .financial-report-container {
+              padding: 0;
+              background: white;
+              box-shadow: none;
+              border: none;
+              border-radius: 0;
+              max-width: 100%;
+              margin: 0;
+            }
+
+            .report-header { margin-bottom: 12px; gap: 14px; }
+            .report-brand { gap: 10px; }
+            .report-logo { width: 38px; height: 38px; font-size: 20px; border-radius: 8px; }
+            .report-brand h2 { font-size: 20px; }
+            .report-brand span { font-size: 10px; }
+            .report-title h1 { font-size: 28px; margin-bottom: 2px; }
+            .report-title p { font-size: 11px; }
+            .report-period { min-width: 150px; padding: 10px; }
+            .report-period h3 { font-size: 12px; margin-bottom: 6px; }
+            .report-period p { font-size: 11px; margin-bottom: 3px; }
+
+            .report-section-title { font-size: 13px; margin: 8px 0 6px 0; }
+            .report-cards { gap: 8px; margin-bottom: 10px; }
+            .report-card { padding: 10px; }
+            .report-kpi { gap: 5px; }
+            .report-kpi span { font-size: 9px; }
+            .report-kpi strong { font-size: 18px; }
+
+            .report-grid { gap: 10px; margin-bottom: 10px; }
+            .report-pie-wrapper { gap: 20px; padding: 6px 0; }
+            .report-pie-svg { width: 140px; height: 140px; }
+            .report-legend { gap: 8px; }
+            .report-legend-item { font-size: 11px; }
+            .report-dot { width: 9px; height: 9px; }
+
+            .report-chart { height: 155px; background-size: 100% 35px; }
+            .report-chart-bars { height: 115px; bottom: 14px; left: 10px; right: 10px; gap: 6px; }
+            .report-chart-labels { padding: 0 10px; gap: 6px; margin-top: 3px; min-height: 10px; }
+            .report-bar-label { font-size: 7px; }
+            .report-hours-table { margin-top: 8px; }
+
+            .report-table { margin-top: 6px; }
+            .report-table th { padding: 6px 8px; font-size: 11px; }
+            .report-table td { padding: 5px 8px; font-size: 11px; }
+
+            .report-footer { margin-top: 10px; font-size: 10px; }
+          }
+        </style>
+      </head>
+      <body>
+        ${reportHTML}
+        <script>
+          window.addEventListener('load', function() {
+            setTimeout(function() {
+              window.print();
+            }, 500);
+          });
+        </script>
+      </body>
+      </html>
+    `
+
+    printWindow.document.write(html)
+    printWindow.document.close()
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-2.5">
+        <div className="text-purple-400"><TrendingUp className="w-5 h-5" /></div>
+        <h2 className="text-lg font-bold text-white">Reportes Financieros</h2>
+      </div>
+
+      {/* Filters */}
+      <div className="card p-5 space-y-4">
+        <p className="text-slate-500 text-sm font-medium">Selecciona el período del reporte</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs text-slate-500 mb-2 uppercase tracking-wider">Desde</label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="input w-full"
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-2 uppercase tracking-wider">Hasta</label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="input w-full"
+              disabled={loading}
+            />
+          </div>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={generateReport} disabled={loading} className="btn-primary">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            Generar Reporte
+          </button>
+          {report && (
+            <>
+              <button onClick={handlePrint} className="btn-ghost">
+                <Printer className="w-4 h-4" />
+                Imprimir
+              </button>
+              <button onClick={handleDownloadPDF} disabled={downloading} className="btn-ghost">
+                {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                Descargar PDF
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Report modal */}
+      <Modal
+        isOpen={!!report}
+        onClose={() => setReport(null)}
+        title={`Reporte Financiero: ${report?.period.from} a ${report?.period.to}`}
+        size="full"
+      >
+        {report && (
+          <div className="p-6">
+            <div className="flex gap-2 mb-4 sticky top-0 bg-white pb-4 border-b">
+              <button onClick={handlePrint} className="btn-primary">
+                <Printer className="w-4 h-4" />
+                Imprimir
+              </button>
+              <button
+                onClick={handleDownloadPDF}
+                disabled={downloading}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+                           bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300
+                           disabled:opacity-50 transition-all"
+              >
+                {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                Descargar PDF
+              </button>
+            </div>
+            <div ref={reportZoomRef} style={{ zoom: 0.8 }}>
+              <FinancialReportPrint report={report} />
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {!report && !loading && (
+        <div className="card px-6 py-12 text-center text-slate-600">
+          <Calendar className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p>Selecciona un período y genera un reporte</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {

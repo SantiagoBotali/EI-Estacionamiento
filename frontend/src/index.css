@@ -111,4 +111,71 @@
   .td {
     @apply px-4 py-3 text-sm text-slate-300;
   }
+
+  /* Print styles */
+  .hidden-on-screen {
+    display: none;
+  }
+
+  @media print {
+    * {
+      margin: 0 !important;
+      padding: 0 !important;
+      background: white !important;
+    }
+
+    body {
+      background: white !important;
+      color: #333 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    html {
+      background: white !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    /* Hide all default elements */
+    aside {
+      display: none !important;
+    }
+
+    main {
+      padding: 0 !important;
+      margin: 0 !important;
+      background: white !important;
+      width: 100% !important;
+      height: auto !important;
+    }
+
+    /* Hide top-level divs except the report container */
+    main > div:not(.hidden-on-screen) {
+      display: none !important;
+    }
+
+    /* Show only the print component */
+    .hidden-on-screen {
+      display: block !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: white !important;
+    }
+
+    /* Hide all buttons, inputs, etc */
+    button, input, label, select, textarea, .btn, [class*="btn"] {
+      display: none !important;
+    }
+
+    /* Ensure print report is visible */
+    .print-page {
+      margin: 0 !important;
+      padding: 10mm 12mm !important;
+      background: white !important;
+      page-break-after: always;
+      width: 21cm !important;
+      height: 29.7cm !important;
+    }
+  }
 }

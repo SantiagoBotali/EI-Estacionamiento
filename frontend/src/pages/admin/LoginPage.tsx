@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, ShieldCheck, UserRound } from 'lucide-react'
+import { Eye, EyeOff, Loader2, UserRound } from 'lucide-react'
 import { login } from '../../api/auth'
+import logoAdmin from '../../../logos/logoadmin.png'
 
 export function AdminLoginPage() {
   const nav = useNavigate()
@@ -43,10 +44,8 @@ export function AdminLoginPage() {
                         rounded-2xl shadow-2xl shadow-black/40 p-8">
 
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-purple-700 rounded-2xl
-                            flex items-center justify-center mx-auto mb-4
-                            shadow-lg shadow-purple-900/50">
-              <ShieldCheck className="w-9 h-9 text-white" />
+            <div className="flex justify-center mb-4">
+              <img src={logoAdmin} alt="Panel de Administración" className="h-20 w-auto object-contain" />
             </div>
             <h1 className="text-2xl font-bold text-white">Panel de Administración</h1>
             <p className="text-slate-500 text-sm mt-1.5">Acceso restringido a administradores</p>

@@ -134,3 +134,29 @@ class SystemSetting(Base):
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[str] = mapped_column(String(500))
+
+
+class CashClosingStatus(str, PyEnum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+
+class CashClosing(Base):
+    __tablename__ = "cash_closings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    shift: Mapped[int] = mapped_column(Integer, nullable=False)
+    initial_cash: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    expected_cash: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    actual_cash: Mapped[float | None] = mapped_column(Float, nullable=True)
+    difference: Mapped[float | None] = mapped_column(Float, nullable=True)
+    remesa: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(8), nullable=False, default=CashClosingStatus.OPEN)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+
+    closed_by: Mapped["User | None"] = relationship("User", foreign_keys=[closed_by_id])

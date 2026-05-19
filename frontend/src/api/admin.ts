@@ -60,3 +60,34 @@ export function getTariffSettings(): Promise<TariffSettings> {
 export function updateTariff(fields: Partial<TariffSettings>): Promise<void> {
   return apiFetch('/api/admin/settings/tariff', { method: 'PUT', body: fields })
 }
+
+export interface FinancialReportData {
+  period: { from: string; to: string }
+  summary: {
+    total_revenue: number
+    approved_payments: number
+    avg_ticket: number
+    total_stays: number
+    avg_duration_min: number
+  }
+  by_method: {
+    method: string
+    revenue: number
+    count: number
+    avg_ticket: number
+    stays?: number
+  }[]
+  revenue_by_hour: { hour: string; revenue: number }[]
+  top_hours: { hour: string; revenue: number }[]
+  top_days: {
+    date: string
+    revenue: number
+    payments: number
+    stays: number
+    avg_ticket: number
+  }[]
+}
+
+export function getFinancialReport(fromDate: string, toDate: string): Promise<FinancialReportData> {
+  return apiFetch(`/api/admin/reports/financial?from_date=${fromDate}&to_date=${toDate}`)
+}

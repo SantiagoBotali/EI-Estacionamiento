@@ -326,6 +326,163 @@ async def kpis_rollup(
     )
 
 
+# ─── Financial Report (custom date range) ────────────────────────────────────
+
+@router.get("/reports/financial")
+async def financial_report(
+    from_date: str,  # YYYY-MM-DD
+    to_date: str,    # YYYY-MM-DD
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Generate financial report for custom date range."""
+    try:
+        start = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end = end + timedelta(days=1)  # Include full end date
+    except ValueError:
+        return {"error": "Invalid date format. Use YYYY-MM-DD"}, 400
+
+    # Get approved payments in range
+    payments = (
+        db.execute(
+            select(Payment).where(
+                Payment.status == PaymentStatus.APPROVED,
+                func.coalesce(Payment.processed_at, Payment.created_at) >= start,
+                func.coalesce(Payment.processed_at, Payment.created_at) < end,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    # Get stays that entered in range
+    stays = (
+        db.execute(
+            select(Stay).where(
+                Stay.entry_at >= start,
+                Stay.entry_at < end,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    # Summary metrics
+    total_revenue = sum(p.amount for p in payments)
+    total_approved_payments = len(payments)
+    avg_ticket = total_revenue / total_approved_payments if total_approved_payments > 0 else 0.0
+    total_stays = len(stays)
+
+    # Average duration (closed stays)
+    closed_stays = [s for s in stays if s.exit_at]
+    durations = []
+    for s in closed_stays:
+        if s.exit_at and s.entry_at:
+            entry = s.entry_at if s.entry_at.tzinfo else s.entry_at.replace(tzinfo=timezone.utc)
+            exit_ = s.exit_at if s.exit_at.tzinfo else s.exit_at.replace(tzinfo=timezone.utc)
+            durations.append((exit_ - entry).total_seconds() / 60)
+    avg_duration = sum(durations) / len(durations) if durations else 0.0
+
+    # Revenue by hour
+    revenue_by_hour: dict[int, float] = {}
+    for p in payments:
+        ts = p.processed_at or p.created_at
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        hour = ts.hour
+        revenue_by_hour[hour] = revenue_by_hour.get(hour, 0) + p.amount
+
+    hours_with_revenue = [
+        {"hour": f"{h:02d}:00", "revenue": round(revenue_by_hour[h], 2)}
+        for h in sorted(revenue_by_hour.keys())
+    ]
+    top_hours = sorted(hours_with_revenue, key=lambda x: x["revenue"], reverse=True)[:3]
+
+    # Revenue by day with payments count
+    revenue_by_day: dict[str, dict] = {}
+    for p in payments:
+        ts = p.processed_at or p.created_at
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        day_key = ts.strftime("%Y-%m-%d")
+        if day_key not in revenue_by_day:
+            revenue_by_day[day_key] = {"revenue": 0.0, "payments": 0}
+        revenue_by_day[day_key]["revenue"] += p.amount
+        revenue_by_day[day_key]["payments"] += 1
+
+    # Stay counts and avg duration by day
+    stays_by_day: dict[str, dict] = {}
+    for s in stays:
+        day_key = s.entry_at.strftime("%Y-%m-%d")
+        if day_key not in stays_by_day:
+            stays_by_day[day_key] = {"count": 0, "durations": []}
+        stays_by_day[day_key]["count"] += 1
+        if s.exit_at:
+            entry = s.entry_at if s.entry_at.tzinfo else s.entry_at.replace(tzinfo=timezone.utc)
+            exit_ = s.exit_at if s.exit_at.tzinfo else s.exit_at.replace(tzinfo=timezone.utc)
+            stays_by_day[day_key]["durations"].append((exit_ - entry).total_seconds() / 60)
+
+    # Combine days data
+    all_days = set(revenue_by_day.keys()) | set(stays_by_day.keys())
+    days_with_revenue = []
+    for day_key in sorted(all_days, reverse=True):
+        day_data = {
+            "date": day_key,
+            "revenue": round(revenue_by_day.get(day_key, {}).get("revenue", 0.0), 2),
+            "payments": revenue_by_day.get(day_key, {}).get("payments", 0),
+            "stays": stays_by_day.get(day_key, {}).get("count", 0),
+        }
+        stays_durs = stays_by_day.get(day_key, {}).get("durations", [])
+        day_data["avg_ticket"] = (
+            round(day_data["revenue"] / day_data["payments"], 2)
+            if day_data["payments"] > 0 else 0.0
+        )
+        days_with_revenue.append(day_data)
+
+    top_days = days_with_revenue[:5]
+
+    # By payment method
+    by_method: dict[str, dict] = {}
+    for p in payments:
+        method = p.method
+        if method not in by_method:
+            by_method[method] = {"revenue": 0.0, "count": 0, "stay_ids": set()}
+        by_method[method]["revenue"] += p.amount
+        by_method[method]["count"] += 1
+        if p.stay_id:
+            by_method[method]["stay_ids"].add(p.stay_id)
+
+    method_detail = [
+        {
+            "method": m,
+            "revenue": round(by_method[m]["revenue"], 2),
+            "count": by_method[m]["count"],
+            "stays": len(by_method[m]["stay_ids"]),
+            "avg_ticket": round(by_method[m]["revenue"] / by_method[m]["count"], 2),
+        }
+        for m in sorted(by_method.keys())
+    ]
+
+    return {
+        "period": {
+            "from": from_date,
+            "to": to_date,
+        },
+        "summary": {
+            "total_revenue": round(total_revenue, 2),
+            "approved_payments": total_approved_payments,
+            "avg_ticket": round(avg_ticket, 2),
+            "total_stays": total_stays,
+            "avg_duration_min": round(avg_duration, 1),
+        },
+        "by_method": method_detail,
+        "revenue_by_hour": hours_with_revenue,
+        "top_hours": top_hours,
+        "top_days": top_days,
+    }
+
+
 # ─── Tariff Settings ──────────────────────────────────────────────────────────
 
 @router.get("/settings/tariff", response_model=TariffSettings)

@@ -135,9 +135,10 @@ def close_cash(
     minimum = float(get_setting(db, "minimum_charge", "300.0"))
     grace = int(get_setting(db, "grace_period_minutes", "15"))
     now = datetime.now(timezone.utc)
+    now_ars = now.replace(tzinfo=None) - timedelta(hours=3)
     amount = calculate_price(stay.entry_at, now, rate_per_hour=rate, minimum_charge=minimum, grace_period_minutes=grace)
 
-    stay.exit_at = now
+    stay.exit_at = now_ars
     stay.amount_paid = amount
     stay.amount_expected = amount
     stay.payment_method = PaymentMethod.CASH
@@ -185,7 +186,8 @@ def generate_today_active_stays(
     for stay in active:
         entry = stay.entry_at if stay.entry_at.tzinfo else stay.entry_at.replace(tzinfo=timezone.utc)
         amount = calculate_price(entry, now, rate_per_hour=rate)
-        stay.exit_at = now
+        now_ars = now.replace(tzinfo=None) - timedelta(hours=3)
+        stay.exit_at = now_ars
         stay.status = StayStatus.CLOSED
         stay.amount_expected = amount
         stay.amount_paid = amount

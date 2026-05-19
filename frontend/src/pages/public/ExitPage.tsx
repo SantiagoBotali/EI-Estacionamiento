@@ -21,6 +21,7 @@ import {
   type MPPreferenceResponse,
 } from '../../api/parking'
 import { formatCurrency, formatDateTime, formatDuration } from '../../lib/utils'
+import logoGeneral from '../../../logos/logogeneral.png'
 
 type ExitState = 'idle' | 'loading' | 'found' | 'qr_loading' | 'qr' | 'polling' | 'paying' | 'success' | 'rejected'
 
@@ -156,6 +157,11 @@ export function ExitPage() {
         <ArrowLeft className="w-4 h-4" />
         Mapa público
       </Link>
+
+      {/* Brand logo */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2">
+        <img src={logoGeneral} alt="Sistema de Estacionamiento" className="h-14 w-auto object-contain" />
+      </div>
 
       {/* ── IDLE ── */}
       {phase === 'idle' && (

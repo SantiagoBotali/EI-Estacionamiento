@@ -57,4 +57,4 @@ def calculate_price(
     billable_hours_rounded = math.ceil(billable_hours * 4) / 4
 
     amount = billable_hours_rounded * rate
-    return max(amount, minimum)
+    return float(math.ceil(max(amount, minimum)))
