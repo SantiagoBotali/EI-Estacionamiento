@@ -62,6 +62,14 @@ export function exitPayCash(stay_id: string): Promise<ExitPayResponse> {
   })
 }
 
+export function requestCashPayment(stay_id: string): Promise<{stay_id: string, status: string}> {
+  return apiFetch<{stay_id: string, status: string}>('/api/public/exit/pay/cash/request', {
+    method: 'POST',
+    body: { stay_id },
+    noAuth: true,
+  })
+}
+
 export function exitPaySimulate(stay_id: string): Promise<ExitPayResponse> {
   return apiFetch<ExitPayResponse>('/api/public/exit/pay/simulate', {
     method: 'POST',

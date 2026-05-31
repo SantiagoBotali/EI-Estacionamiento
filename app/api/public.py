@@ -108,6 +108,15 @@ async def exit_pay_cash(body: ExitPayRequest, db: Session = Depends(get_db)):
     }
 
 
+@router.post("/api/public/exit/pay/cash/request")
+async def exit_pay_cash_request(body: ExitPayRequest, db: Session = Depends(get_db)):
+    stay = stay_manager.request_cash(db, body.stay_id)
+    return {
+        "stay_id": stay.id,
+        "status": stay.status,
+    }
+
+
 @router.post("/api/public/exit/pay/simulate")
 async def exit_pay_simulate(body: ExitPayRequest, db: Session = Depends(get_db)):
     from app.services.payment_service import simulate_payment

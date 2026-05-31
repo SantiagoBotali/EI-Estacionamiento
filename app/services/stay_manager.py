@@ -108,6 +108,30 @@ def lookup_stay(db: Session, query: str) -> tuple[Stay, Ticket, float]:
     return stay, ticket, amount
 
 
+def request_cash(
+    db: Session,
+    stay_id: str,
+) -> Stay:
+    """
+    Request a cash payment from the kiosk. Sets status to PAYMENT_PENDING.
+    """
+    stmt = select(Stay).where(Stay.id == stay_id)
+    stay = db.execute(stmt).scalar_one_or_none()
+
+    if stay is None:
+        raise HTTPException(status_code=404, detail="Estadía no encontrada")
+
+    if stay.status not in (StayStatus.ACTIVE, StayStatus.PAYMENT_PENDING):
+        raise HTTPException(status_code=409, detail=f"Estadía en estado {stay.status}")
+
+    from app.models import PaymentMethod
+    stay.status = StayStatus.PAYMENT_PENDING
+    stay.payment_method = PaymentMethod.CASH
+    db.commit()
+    db.refresh(stay)
+    return stay
+
+
 def close_cash(
     db: Session,
     stay_id: str,

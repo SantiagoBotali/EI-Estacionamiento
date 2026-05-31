@@ -38,6 +38,9 @@ const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'cash',   icon: <Banknote      className="w-5 h-5" />, label: 'Caja'         },
 ]
 
+const poppedCashRequests = new Set<string>()
+
+
 export function EmployeePanelPage() {
   const nav = useNavigate()
   const toast = useToast()
@@ -55,6 +58,27 @@ export function EmployeePanelPage() {
   useEffect(() => {
     if (!getToken()) nav('/employee/login', { replace: true })
   }, [nav])
+
+  const [globalCashRequest, setGlobalCashRequest] = useState<{stayId: string, amount: number} | null>(null)
+
+  useEffect(() => {
+    if (!getToken()) return
+    const id = setInterval(async () => {
+      try {
+        const stays = await getActiveStays()
+        const pendingCash = stays.find(s => s.status === 'PAYMENT_PENDING' && s.payment_method === 'CASH')
+        if (pendingCash && !poppedCashRequests.has(pendingCash.id)) {
+          poppedCashRequests.add(pendingCash.id)
+          toast('success', `Solicitud de cobro en efectivo: ${pendingCash.ticket?.ticket_code}`)
+          setActiveTab('stays')
+          setGlobalCashRequest({ stayId: pendingCash.id, amount: pendingCash.amount_expected })
+        }
+      } catch (e) {
+        // ignore
+      }
+    }, 5000)
+    return () => clearInterval(id)
+  }, [toast])
 
   return (
     <div className="min-h-screen bg-slate-950 flex">
@@ -133,7 +157,7 @@ export function EmployeePanelPage() {
         <div className="p-5 lg:p-7 animate-fade-in">
           {activeTab === 'map'    && <MapTab    toast={toast} />}
           {activeTab === 'camera' && <CameraTab />}
-          {activeTab === 'stays'  && <StaysTab  toast={toast} />}
+          {activeTab === 'stays'  && <StaysTab  toast={toast} globalCashRequest={globalCashRequest} onClearGlobalRequest={() => setGlobalCashRequest(null)} />}
           {activeTab === 'new'    && <NewTab    toast={toast} />}
           {activeTab === 'cash'   && <CashTab   toast={toast} />}
         </div>
@@ -238,7 +262,7 @@ function computeLiveAmount(entryAtStr: string, tariff: TariffInfo | null): numbe
    - lookupResult: on-demand via lookupStay(), cleared on new search
    - cashModal: shared between both list actions and lookup result
 ───────────────────────────────────────────────────────────── */
-function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
+function StaysTab({ toast, globalCashRequest, onClearGlobalRequest }: { toast: ReturnType<typeof useToast>, globalCashRequest: {stayId: string, amount: number} | null, onClearGlobalRequest: () => void }) {
   // ── Active stays ─────────────────────────────────────────
   const [stays, setStays]           = useState<ActiveStay[]>([])
   const [staysLoading, setStaysLoading] = useState(true)
@@ -332,6 +356,13 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   }
 
   const openCashModal = (stayId: string, amount: number) => setCashModal({ stayId, amount })
+
+  useEffect(() => {
+    if (globalCashRequest) {
+      setCashModal({ stayId: globalCashRequest.stayId, amount: globalCashRequest.amount })
+      onClearGlobalRequest()
+    }
+  }, [globalCashRequest, onClearGlobalRequest])
 
   // ── Render ───────────────────────────────────────────────
   return (

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import {
   exitLookup,
-  exitPayCash,
+  requestCashPayment,
   createMPPreference,
   checkMPPaymentStatus,
   type ExitLookupResponse,
@@ -23,7 +23,7 @@ import {
 import { formatCurrency, formatDateTime, formatDuration } from '../../lib/utils'
 import logoGeneral from '../../../logos/logogeneral.png'
 
-type ExitState = 'idle' | 'loading' | 'found' | 'qr_loading' | 'qr' | 'polling' | 'paying' | 'success' | 'rejected'
+type ExitState = 'idle' | 'loading' | 'found' | 'qr_loading' | 'qr' | 'polling' | 'paying' | 'success' | 'rejected' | 'cash_requested'
 
 function elapsedMinutes(entryAt: string): number {
   return (Date.now() - new Date(entryAt).getTime()) / 60000
@@ -45,9 +45,9 @@ export function ExitPage() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
 
-  /* Auto-countdown after success */
+  /* Auto-countdown after success or cash request */
   useEffect(() => {
-    if (phase !== 'success') return
+    if (phase !== 'success' && phase !== 'cash_requested') return
     setCountdown(10)
     const t = setInterval(() => {
       setCountdown((c) => {
@@ -88,9 +88,8 @@ export function ExitPage() {
     setError(null)
     setPhase('paying')
     try {
-      const res = await exitPayCash(lookupData.stay_id)
-      setPayResult(res)
-      setPhase('success')
+      await requestCashPayment(lookupData.stay_id)
+      setPhase('cash_requested')
     } catch (e) {
       setError((e as Error).message)
       setPhase('found')
@@ -473,6 +472,49 @@ export function ExitPage() {
                 <p className="text-slate-500 text-xs">
                   Volviendo al inicio en{' '}
                   <span className="text-emerald-400 font-semibold">{countdown}s</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <button onClick={reset} className="mt-3 w-full btn-secondary justify-center py-3">
+            Volver al inicio
+          </button>
+        </div>
+      )}
+
+      {/* ── CASH REQUESTED ── */}
+      {phase === 'cash_requested' && lookupData && (
+        <div className="w-full max-w-sm animate-slide-up">
+          <div className="bg-slate-900/80 backdrop-blur border border-slate-700/60 rounded-2xl overflow-hidden shadow-2xl">
+            <div className="bg-gradient-to-r from-amber-900/80 to-amber-800/60
+                            border-b border-amber-700/50 px-6 py-5 text-center">
+              <Banknote className="w-12 h-12 text-amber-400 mx-auto mb-2" />
+              <h2 className="text-white font-bold text-xl">Pago en efectivo</h2>
+              <p className="text-amber-300/70 text-sm mt-1">
+                Favor de acercarse al Empleado para abonar el monto
+              </p>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="text-center mb-4">
+                <p className="text-slate-500 text-xs uppercase tracking-widest mb-1">Monto a pagar</p>
+                <p className="text-amber-300 font-bold text-3xl">
+                  {lookupData.amount === 0 ? 'GRATIS' : formatCurrency(lookupData.amount)}
+                </p>
+              </div>
+
+              {/* Countdown bar */}
+              <div className="text-center">
+                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-amber-500 transition-all duration-1000"
+                    style={{ width: `${(countdown / 10) * 100}%` }}
+                  />
+                </div>
+                <p className="text-slate-500 text-xs">
+                  Volviendo al inicio en{' '}
+                  <span className="text-amber-400 font-semibold">{countdown}s</span>
                 </p>
               </div>
             </div>
