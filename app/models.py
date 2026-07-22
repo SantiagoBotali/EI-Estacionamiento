@@ -136,27 +136,25 @@ class SystemSetting(Base):
     value: Mapped[str] = mapped_column(String(500))
 
 
-class CashClosingStatus(str, PyEnum):
-    OPEN = "OPEN"
-    CLOSED = "CLOSED"
-
-
 class CashClosing(Base):
     __tablename__ = "cash_closings"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
-    shift: Mapped[int] = mapped_column(Integer, nullable=False)
-    initial_cash: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    expected_cash: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    actual_cash: Mapped[float | None] = mapped_column(Float, nullable=True)
-    difference: Mapped[float | None] = mapped_column(Float, nullable=True)
-    remesa: Mapped[float | None] = mapped_column(Float, nullable=True)
-    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    employee_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    period_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    cash_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    digital_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    stay_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_cash: Mapped[float] = mapped_column(Float, nullable=False)
+    difference: Mapped[float] = mapped_column(Float, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(8), nullable=False, default=CashClosingStatus.OPEN)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    closed_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    closed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    closed_by_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
 
     closed_by: Mapped["User | None"] = relationship("User", foreign_keys=[closed_by_id])
