@@ -18,7 +18,8 @@ import {
 import {
   getActiveStays, lookupStay, closeCash,
   getEmployeeTariff, generateTodayStays,
-  type ActiveStay, type StayLookupResponse, type TariffInfo,
+  listCashClosings,
+  type ActiveStay, type StayLookupResponse, type TariffInfo, type CashClosing,
 } from '../../api/employee'
 import {
   getParkingState,
@@ -404,6 +405,75 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   Sub-componente: Historial de cierres de caja (para admin)
+───────────────────────────────────────────────────────────── */
+function CashClosingHistory({ toast }: { toast: ReturnType<typeof useToast> }) {
+  const [history, setHistory] = useState<CashClosing[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    listCashClosings()
+      .then(setHistory)
+      .catch((e) => toast('error', (e as Error).message))
+      .finally(() => setLoading(false))
+  }, [toast])
+
+  if (loading) {
+    return (
+      <div className="h-20 flex items-center justify-center">
+        <Loader2 className="w-5 h-5 animate-spin text-slate-600" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+        Historial de cierres de caja
+      </p>
+      {history.length === 0 ? (
+        <p className="text-slate-600 text-sm py-3">No hay cierres registrados aún.</p>
+      ) : (
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-700/60 bg-slate-900/40">
+                  <th className="th">Fecha y hora</th>
+                  <th className="th">Empleado</th>
+                  <th className="th">Estadías</th>
+                  <th className="th">Efectivo esperado</th>
+                  <th className="th">Contado</th>
+                  <th className="th">Digital</th>
+                  <th className="th">Total</th>
+                  <th className="th">Diferencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((c) => (
+                  <tr key={c.id} className="table-row">
+                    <td className="td text-slate-300 text-sm">{formatDateTime(c.closed_at)}</td>
+                    <td className="td font-semibold text-white">{c.employee_name}</td>
+                    <td className="td text-slate-400">{c.stay_count}</td>
+                    <td className="td text-slate-200">{formatCurrency(c.cash_amount)}</td>
+                    <td className="td text-slate-200">{formatCurrency(c.actual_cash)}</td>
+                    <td className="td text-purple-300">{formatCurrency(c.digital_amount)}</td>
+                    <td className="td font-semibold text-white">{formatCurrency(c.total_amount)}</td>
+                    <td className={`td font-semibold ${c.difference >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {c.difference >= 0 ? '+' : ''}{formatCurrency(c.difference)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────
    Tab: Finanzas
 ───────────────────────────────────────────────────────────── */
 function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
@@ -589,6 +659,9 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           )}
         </ChartCard>
       </div>
+
+      {/* ── Historial de cierres de caja ── */}
+      <CashClosingHistory toast={toast} />
     </div>
   )
 }
@@ -1137,7 +1210,7 @@ function ReportsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           .financial-report-container * { box-sizing: border-box; }
           .report-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px; }
           .report-brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-          .report-logo { width: 48px; height: 48px; border-radius: 10px; background: #0b3b91; color: white; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; flex-shrink: 0; }
+          .report-logo { width: 48px; height: 48px; border-radius: 10px; object-fit: contain; flex-shrink: 0; }
           .report-brand h2 { margin: 0; font-size: 28px; line-height: 1; color: #0b1f4d; font-weight: 800; }
           .report-brand span { font-size: 11px; color: #64748b; letter-spacing: 0.5px; margin: 0; }
           .report-title { text-align: center; flex: 1; }
