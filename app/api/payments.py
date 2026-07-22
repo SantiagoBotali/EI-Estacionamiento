@@ -1,8 +1,7 @@
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
-from fastapi import Depends
 
 from app.database import get_db
 from app.services.payment_service import process_mp_webhook
