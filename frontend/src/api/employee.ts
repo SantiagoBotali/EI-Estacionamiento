@@ -76,84 +76,48 @@ export function generateTodayStays(): Promise<GenerateTodayResult> {
   return apiFetch('/api/employee/demo/generate-today', { method: 'POST' })
 }
 
-export function simulatePayment(stayId: string): Promise<{ stay: Stay }> {
-  return apiFetch(`/api/payments/simulate/${stayId}`, { method: 'POST' })
-}
-
 
 // ─── Cash Closing ─────────────────────────────────────────────────────────
 
+export const EMPLOYEES = ['Joaquin Zubiri', 'Santiago Botali', 'Gino Fina'] as const
+
+export interface CashClosingPreview {
+  period_from: string
+  period_to: string
+  cash_amount: number
+  digital_amount: number
+  total_amount: number
+  stay_count: number
+}
+
 export interface CashClosing {
   id: string
-  date: string
-  shift: 1 | 2 | 3
-  initial_cash: number
-  expected_cash: number
-  actual_cash?: number
-  difference?: number
-  remesa?: number
-  is_demo: boolean
+  employee_name: string
+  period_from: string
+  period_to: string
+  cash_amount: number
+  digital_amount: number
+  total_amount: number
+  stay_count: number
+  actual_cash: number
+  difference: number
   notes?: string
-  status: 'OPEN' | 'CLOSED'
-  created_at: string
-  closed_at?: string
+  closed_at: string
   closed_by_id?: number
 }
 
-export interface TodaySummary {
-  date: string
-  current_shift: 1 | 2 | 3
-  closings: CashClosing[]
-  total_expected: number
-  total_actual?: number
-  total_remesa?: number
-  total_difference?: number
-  open_closing?: CashClosing
-  fondo_fijo: number
+export function getCashClosingPreview(): Promise<CashClosingPreview> {
+  return apiFetch('/api/employee/cash-closings/preview')
 }
 
-export function openCashClosing(shift: number, initial_cash: number): Promise<CashClosing> {
-  return apiFetch('/api/employee/cash-closings', {
-    method: 'POST',
-    body: { shift, initial_cash, force_demo: false, is_demo: false },
-  })
+export function createCashClosing(data: {
+  employee_name: string
+  actual_cash: number
+  notes?: string
+}): Promise<CashClosing> {
+  return apiFetch('/api/employee/cash-closings', { method: 'POST', body: data })
 }
 
-export function listCashClosings(date?: string): Promise<CashClosing[]> {
-  const qs = date ? `?date=${date}` : ''
-  return apiFetch(`/api/employee/cash-closings${qs}`)
-}
-
-export function closeCashClosing(
-  id: string, actual_cash: number, notes?: string
-): Promise<CashClosing> {
-  return apiFetch(`/api/employee/cash-closings/${id}/close`, {
-    method: 'PATCH',
-    body: { actual_cash, notes },
-  })
-}
-
-export function getTodaySummary(): Promise<TodaySummary> {
-  return apiFetch('/api/employee/cash-closings/summary/today')
-}
-
-export function getSuggestedInitial(shift: number): Promise<{ suggested_initial_cash: number }> {
-  return apiFetch(`/api/employee/cash-closings/${shift}/suggested-initial`)
-}
-
-export function openCashClosingWithForce(
-  shift: number, initial_cash: number, force_demo: boolean = false, is_demo: boolean = false
-): Promise<CashClosing> {
-  return apiFetch('/api/employee/cash-closings', {
-    method: 'POST',
-    body: { shift, initial_cash, force_demo, is_demo },
-  })
-}
-
-export function resetTodayClosings(): Promise<{ deleted: number; message: string }> {
-  return apiFetch('/api/employee/cash-closings/reset-today', { method: 'DELETE' })
-}
-
-export function quickCloseDemoClosing(id: string): Promise<CashClosing> {
-  return apiFetch(`/api/employee/cash-closings/${id}/quick-close`, { method: 'PATCH' })
+export function listCashClosings(): Promise<CashClosing[]> {
+  return apiFetch('/api/employee/cash-closings')
 }
