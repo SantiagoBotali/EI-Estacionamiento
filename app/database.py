@@ -56,8 +56,6 @@ def _migrate():
     from sqlalchemy import text, inspect
     additions = [
         ("stays", "slot_vision_id", "INTEGER"),
-        ("cash_closings", "remesa", "REAL"),
-        ("cash_closings", "is_demo", "INTEGER DEFAULT 0"),
     ]
     with engine.connect() as conn:
         for table, column, col_type in additions:
@@ -106,7 +104,6 @@ def seed_db():
             "rate_per_hour": "1200.0",
             "minimum_charge": "300.0",
             "grace_period_minutes": "15",
-            "fondo_fijo": "5000.0",
         }
         for key, value in defaults.items():
             existing = db.execute(
@@ -128,10 +125,11 @@ def _seed_synthetic_stays(db: Session):
     """
     Generate closed stays from January 2024 to today.
 
-    Per-month targets:
-    - Base of 60+ stays with natural month-to-month variation (±30%)
+    Per-day targets:
+    - Weekdays (Mon–Fri): 30–60 stays/day
+    - Weekends (Sat–Sun): 15–35 stays/day
     - Payment split varies each month: randomly between 40-90% cash, rest MercadoPago
-    - Duration: 20–240 min, weighted toward 30–90 min
+    - Duration: 15–300 min, weighted toward 30–90 min
     - Entry hour: weighted toward morning (9-12) and afternoon (16-19)
 
     Also creates 5 active stays for the current day.
@@ -164,42 +162,33 @@ def _seed_synthetic_stays(db: Session):
     minimum = 300.0
     grace = 15
 
-    # ── Iterate months from 2024-01 to current month ──────────────────────────
+    # ── Iterate day by day from 2024-01-01 to yesterday ─────────────────────
     seed_start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    current_month_start = now_utc.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    today_start_for_seed = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    cursor = seed_start
-    while cursor <= current_month_start:
-        year  = cursor.year
-        month = cursor.month
+    # Cash ratio varies monthly (recalculated at the start of each new month)
+    current_seed_month = None
+    cash_ratio = 0.65
 
-        # How many days in this month?
-        if month == 12:
-            next_month = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    day_cursor = seed_start
+    while day_cursor < today_start_for_seed:
+        # Update cash ratio at the start of each new month
+        if day_cursor.month != current_seed_month:
+            current_seed_month = day_cursor.month
+            cash_ratio = random.uniform(0.40, 0.90)
+
+        # Weekday (Mon–Fri): 30–60 stays/day; Weekend (Sat–Sun): 15–35 stays/day
+        weekday = day_cursor.weekday()  # 0=Monday, 6=Sunday
+        if weekday < 5:
+            count = random.randint(30, 60)
         else:
-            next_month = datetime(year, month + 1, 1, tzinfo=timezone.utc)
-
-        # For the current (incomplete) month, limit to yesterday
-        month_end = min(next_month, now_utc.replace(hour=0, minute=0, second=0, microsecond=0))
-        days_available = max(1, (month_end - cursor).days)
-
-        # Natural variation: 60-100 stays/month base, scaled by available days
-        scale = min(1.0, days_available / 28.0)
-        base_count = random.randint(60, 100)
-        count = max(10, round(base_count * scale))
-
-        # Per-month cash ratio varies naturally (40-90%)
-        cash_ratio = random.uniform(0.40, 0.90)
+            count = random.randint(15, 35)
 
         for _ in range(count):
-            # Random day within [cursor, month_end)
-            day_offset = random.randint(0, days_available - 1)
-            day_start  = cursor + timedelta(days=day_offset)
-
             hour   = random.choices(range(24), weights=hour_weights)[0]
             minute = random.randint(0, 59)
             second = random.randint(0, 59)
-            entry_at = day_start.replace(hour=hour, minute=minute, second=second)
+            entry_at = day_cursor.replace(hour=hour, minute=minute, second=second)
 
             # Clamp: never in the future
             if entry_at >= now_utc:
@@ -247,8 +236,8 @@ def _seed_synthetic_stays(db: Session):
                 processed_at=exit_at,
             ))
 
-        # Advance to next month
-        cursor = next_month
+        # Advance to next day
+        day_cursor += timedelta(days=1)
 
     # ── 5 active stays today ──────────────────────────────────────────────────
     today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
