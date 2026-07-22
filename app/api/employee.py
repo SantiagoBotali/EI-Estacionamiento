@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from typing import Optional
 
 import cv2
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,8 +11,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 from app.schemas import (
-    CashClosingOpen,
-    CashClosingClose,
+    CashClosingPreview,
+    CashClosingCreate,
     CashClosingOut,
     StayCreate,
     StayCreateResponse,
@@ -22,7 +21,6 @@ from app.schemas import (
     StayOut,
     TariffSettings,
     TicketOut,
-    TodaySummary,
 )
 from app.security import require_employee
 from app.services import stay_manager
@@ -187,104 +185,37 @@ async def active_stays(
 
 # ─── Cash Closing API ─────────────────────────────────────────────────────────
 
-# ─── Cash Closing API ──────────────────────────────────────────────────────
+@router.get("/cash-closings/preview", response_model=CashClosingPreview)
+async def preview_cash_closing(
+    _: User = Depends(require_employee),
+    db: Session = Depends(get_db),
+):
+    """Calcula los totales del período sin guardar el cierre."""
+    from app.services.cash_closing_service import get_closing_preview
+    return get_closing_preview(db)
+
 
 @router.post("/cash-closings", response_model=CashClosingOut, status_code=201)
-async def open_cash_closing(
-    payload: CashClosingOpen,
+async def create_cash_closing(
+    payload: CashClosingCreate,
     current_user: User = Depends(require_employee),
     db: Session = Depends(get_db),
 ):
-    from app.services.cash_closing_service import open_cash_closing as svc_open
-    closing = svc_open(
-        db, payload.shift, payload.initial_cash, current_user.id,
-        force_demo=payload.force_demo, is_demo=payload.is_demo,
+    """Crea un cierre de caja atómico."""
+    from app.services.cash_closing_service import create_closing
+    closing = create_closing(
+        db, payload.employee_name, payload.actual_cash, payload.notes, current_user.id
     )
     return CashClosingOut.model_validate(closing)
-
-
-@router.get("/cash-closings/summary/today", response_model=TodaySummary)
-async def today_summary(
-    _: User = Depends(require_employee),
-    db: Session = Depends(get_db),
-):
-    from app.services.cash_closing_service import get_today_summary
-    summary_data = get_today_summary(db)
-    return TodaySummary(
-        date=summary_data["date"],
-        current_shift=summary_data["current_shift"],
-        closings=[CashClosingOut.model_validate(c) for c in summary_data["closings"]],
-        total_expected=summary_data["total_expected"],
-        total_actual=summary_data["total_actual"],
-        total_remesa=summary_data["total_remesa"],
-        total_difference=summary_data["total_difference"],
-        open_closing=CashClosingOut.model_validate(summary_data["open_closing"]) if summary_data["open_closing"] else None,
-        fondo_fijo=summary_data["fondo_fijo"],
-    )
-
-
-@router.delete("/cash-closings/reset-today")
-async def reset_today_closings(
-    _: User = Depends(require_employee),
-    db: Session = Depends(get_db),
-):
-    from app.services.cash_closing_service import reset_today_closings as svc_reset
-    deleted = svc_reset(db)
-    return {"deleted": deleted, "message": f"Eliminados {deleted} cierre(s) de hoy"}
-
-
-@router.get("/cash-closings/{shift}/suggested-initial")
-async def get_suggested_initial(
-    shift: int,
-    _: User = Depends(require_employee),
-    db: Session = Depends(get_db),
-):
-    from app.services.cash_closing_service import get_next_shift_initial_cash
-    from datetime import datetime, timezone, timedelta
-    today_ars = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%d")
-    suggested = get_next_shift_initial_cash(db, today_ars, shift)
-    return {"suggested_initial_cash": suggested}
 
 
 @router.get("/cash-closings", response_model=list[CashClosingOut])
 async def list_cash_closings(
-    date: Optional[str] = None,
     _: User = Depends(require_employee),
     db: Session = Depends(get_db),
 ):
+    """Lista todos los cierres, más reciente primero."""
     from app.services.cash_closing_service import list_closings
-    closings = list_closings(db, date)
+    closings = list_closings(db)
     return [CashClosingOut.model_validate(c) for c in closings]
-
-
-@router.patch("/cash-closings/{closing_id}/close", response_model=CashClosingOut)
-async def close_cash_closing(
-    closing_id: str,
-    payload: CashClosingClose,
-    current_user: User = Depends(require_employee),
-    db: Session = Depends(get_db),
-):
-    from app.services.cash_closing_service import close_cash_closing as svc_close
-    closing = svc_close(db, closing_id, payload.actual_cash, payload.notes, current_user.id)
-    return CashClosingOut.model_validate(closing)
-
-
-@router.patch("/cash-closings/{closing_id}/quick-close", response_model=CashClosingOut)
-async def quick_close_demo(
-    closing_id: str,
-    current_user: User = Depends(require_employee),
-    db: Session = Depends(get_db),
-):
-    """Close a demo closing with actual_cash = initial_cash + expected_cash (zero difference)."""
-    from sqlalchemy import select as sa_select
-    from app.models import CashClosing
-    from app.services.cash_closing_service import close_cash_closing as svc_close, calculate_expected_cash
-    closing = db.execute(sa_select(CashClosing).where(CashClosing.id == closing_id)).scalar_one_or_none()
-    if not closing or not closing.is_demo:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Quick close only available for demo closings")
-    expected = calculate_expected_cash(db, closing.date, closing.shift)
-    actual = closing.initial_cash + expected
-    result = svc_close(db, closing_id, actual, "Cierre rápido de simulación", current_user.id)
-    return CashClosingOut.model_validate(result)
 
