@@ -686,6 +686,7 @@ function CashTab({ toast }: { toast: ReturnType<typeof useToast> }) {
       loadData()
     } catch (e) {
       toast('error', (e as Error).message)
+      setConfirming(false)
     } finally {
       setSubmitting(false)
     }
