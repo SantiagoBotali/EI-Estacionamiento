@@ -165,14 +165,17 @@ class RollupKPI(BaseModel):
 
 # ─── Cash Closing ────────────────────────────────────────────────────────────
 
-class CashClosingOpen(BaseModel):
-    shift: int
-    initial_cash: float = 0.0
-    force_demo: bool = False
-    is_demo: bool = False
+class CashClosingPreview(BaseModel):
+    period_from: datetime
+    period_to: datetime
+    cash_amount: float
+    digital_amount: float
+    total_amount: float
+    stay_count: int
 
 
-class CashClosingClose(BaseModel):
+class CashClosingCreate(BaseModel):
+    employee_name: str
     actual_cash: float
     notes: Optional[str] = None
 
@@ -181,28 +184,15 @@ class CashClosingOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    date: str
-    shift: int
-    initial_cash: float
-    expected_cash: float
-    actual_cash: Optional[float] = None
-    difference: Optional[float] = None
-    remesa: Optional[float] = None
-    is_demo: bool = False
+    employee_name: str
+    period_from: datetime
+    period_to: datetime
+    cash_amount: float
+    digital_amount: float
+    total_amount: float
+    stay_count: int
+    actual_cash: float
+    difference: float
     notes: Optional[str] = None
-    status: str
-    created_at: datetime
-    closed_at: Optional[datetime] = None
+    closed_at: datetime
     closed_by_id: Optional[int] = None
-
-
-class TodaySummary(BaseModel):
-    date: str
-    current_shift: int
-    closings: list[CashClosingOut]
-    total_expected: float
-    total_actual: Optional[float] = None
-    total_remesa: Optional[float] = None
-    total_difference: Optional[float] = None
-    open_closing: Optional[CashClosingOut] = None
-    fondo_fijo: float = 5000.0
