@@ -15,10 +15,9 @@ import {
 import {
   getActiveStays, lookupStay, createStay, closeCash,
   getEmployeeTariff, generateTodayStays,
-  openCashClosing, closeCashClosing, getTodaySummary,
-  getSuggestedInitial, openCashClosingWithForce, resetTodayClosings, quickCloseDemoClosing,
+  getCashClosingPreview, createCashClosing, listCashClosings, EMPLOYEES,
   type ActiveStay, type StayLookupResponse, type TariffInfo,
-  type CashClosing, type TodaySummary,
+  type CashClosingPreview, type CashClosing,
 } from '../../api/employee'
 import { ParkingMap } from '../../components/ParkingMap'
 import { CameraFeed } from '../../components/CameraFeed'
@@ -642,32 +641,21 @@ function NewTab({ toast }: { toast: ReturnType<typeof useToast> }) {
    Tab: Caja
 ───────────────────────────────────────────────────────────── */
 function CashTab({ toast }: { toast: ReturnType<typeof useToast> }) {
-  const [summary, setSummary] = useState<TodaySummary | null>(null)
+  const [preview, setPreview] = useState<CashClosingPreview | null>(null)
+  const [history, setHistory] = useState<CashClosing[]>([])
   const [loading, setLoading] = useState(true)
-  const [initialCash, setInitialCash] = useState('')
+  const [employeeName, setEmployeeName] = useState('')
   const [actualCash, setActualCash] = useState('')
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
-  // Simulation mode
-  const [demoMode, setDemoMode] = useState(false)
-  const [demoShift, setDemoShift] = useState<1 | 2 | 3>(1)
-  const [resetting, setResetting] = useState(false)
-
-  const realCurrentShift = summary?.current_shift ?? 1
-  const fondoFijo = summary?.fondo_fijo ?? 5000
-  const schedules: Record<number, string> = { 1: '06:00-14:00', 2: '14:00-22:00', 3: '22:00-06:00' }
-
-  // Real open closing for the current shift
-  const realOpenClosing = summary?.closings.find(c => c.shift === realCurrentShift && c.status === 'OPEN' && !c.is_demo) ?? null
-  // Demo open closing for the selected demo shift
-  const demoOpenClosing = summary?.closings.find(c => c.shift === demoShift && c.status === 'OPEN' && c.is_demo) ?? null
-
-  const loadSummary = useCallback(async () => {
+  const loadData = useCallback(async () => {
+    setLoading(true)
     try {
-      setSummary(await getTodaySummary())
+      const [p, h] = await Promise.all([getCashClosingPreview(), listCashClosings()])
+      setPreview(p)
+      setHistory(h)
     } catch (e) {
       toast('error', (e as Error).message)
     } finally {
@@ -675,104 +663,32 @@ function CashTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     }
   }, [toast])
 
-  useEffect(() => { loadSummary() }, [loadSummary])
+  useEffect(() => { loadData() }, [loadData])
 
-  useEffect(() => {
-    const closing = demoMode ? demoOpenClosing : realOpenClosing
-    if (!closing && summary) setInitialCash(String(fondoFijo))
-  }, [demoOpenClosing, realOpenClosing, demoMode, summary, fondoFijo])
+  const actualCashNum = parseFloat(actualCash) || 0
+  const liveDiff = preview ? actualCashNum - preview.cash_amount : 0
+  const canSubmit = employeeName !== '' && actualCash.trim() !== ''
 
-  useEffect(() => {
-    if (demoMode) setDemoShift(realCurrentShift)
-  }, [demoMode, realCurrentShift])
-
-  // ── Real mode handlers ──────────────────────────────────────
-  const handleRealOpen = async () => {
-    setError(null)
-    if (!initialCash.trim()) { setError('Ingrese monto inicial'); return }
+  const handleClose = async () => {
+    if (!canSubmit) return
     setSubmitting(true)
     try {
-      await openCashClosing(realCurrentShift, parseFloat(initialCash) || 0)
-      toast('success', `Caja turno ${realCurrentShift} abierta`)
-      setInitialCash('')
-      loadSummary()
+      await createCashClosing({
+        employee_name: employeeName,
+        actual_cash: actualCashNum,
+        notes: notes.trim() || undefined,
+      })
+      toast('success', 'Caja cerrada correctamente')
+      setEmployeeName('')
+      setActualCash('')
+      setNotes('')
+      setConfirming(false)
+      loadData()
     } catch (e) {
-      const msg = (e as Error).message
-      if (msg.includes('Cannot open shift')) {
-        setConfirmDialog({
-          message: `${msg}\n\n¿Abrir de todas formas?`,
-          onConfirm: async () => {
-            setConfirmDialog(null)
-            setSubmitting(true)
-            try {
-              await openCashClosingWithForce(realCurrentShift, parseFloat(initialCash) || 0, true, false)
-              toast('success', `Caja turno ${realCurrentShift} abierta`)
-              setInitialCash('')
-              loadSummary()
-            } catch (e2) { toast('error', (e2 as Error).message) }
-            finally { setSubmitting(false) }
-          },
-        })
-      } else { setError(msg); toast('error', msg) }
-    } finally { setSubmitting(false) }
-  }
-
-  const handleRealClose = async () => {
-    if (!realOpenClosing || !actualCash.trim()) return
-    setSubmitting(true)
-    try {
-      const actual = parseFloat(actualCash) || 0
-      const closed = await closeCashClosing(realOpenClosing.id, actual, notes || undefined)
-      toast('success', `Caja cerrada. Remesa: ${formatCurrency(closed.remesa ?? 0)}`)
-      setActualCash(''); setNotes(''); loadSummary()
-    } catch (e) { toast('error', (e as Error).message) }
-    finally { setSubmitting(false) }
-  }
-
-  // ── Demo mode handlers ──────────────────────────────────────
-  const handleDemoOpen = async (shift: 1 | 2 | 3 = demoShift) => {
-    setSubmitting(true)
-    try {
-      // Force + is_demo: backend deletes any existing demo record and creates fresh
-      await openCashClosingWithForce(shift, fondoFijo, true, true)
-      toast('success', `Simulación turno ${shift} abierta`)
-      setInitialCash(''); setActualCash(''); setNotes(''); setError(null)
-      loadSummary()
-    } catch (e) { toast('error', (e as Error).message) }
-    finally { setSubmitting(false) }
-  }
-
-  const handleDemoClose = async () => {
-    if (!demoOpenClosing || !actualCash.trim()) return
-    setSubmitting(true)
-    try {
-      const actual = parseFloat(actualCash) || 0
-      const closed = await closeCashClosing(demoOpenClosing.id, actual, notes || undefined)
-      toast('success', `Simulación cerrada. Remesa: ${formatCurrency(closed.remesa ?? 0)}`)
-      setActualCash(''); setNotes(''); loadSummary()
-    } catch (e) { toast('error', (e as Error).message) }
-    finally { setSubmitting(false) }
-  }
-
-  const handleDemoQuickClose = async (closing: CashClosing) => {
-    setSubmitting(true)
-    try {
-      const closed = await quickCloseDemoClosing(closing.id)
-      toast('success', `Turno ${closing.shift} cerrado. Remesa: ${formatCurrency(closed.remesa ?? 0)}`)
-      loadSummary()
-    } catch (e) { toast('error', (e as Error).message) }
-    finally { setSubmitting(false) }
-  }
-
-  const handleReset = async () => {
-    setResetting(true)
-    try {
-      const result = await resetTodayClosings()
-      toast('success', result.message)
-      setActualCash(''); setNotes(''); setInitialCash(''); setError(null)
-      loadSummary()
-    } catch (e) { toast('error', (e as Error).message) }
-    finally { setResetting(false) }
+      toast('error', (e as Error).message)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (loading) {
@@ -783,427 +699,192 @@ function CashTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     )
   }
 
-  // ── Real closing form helpers ───────────────────────────────
-  const realExpectedTotal = realOpenClosing ? realOpenClosing.initial_cash + realOpenClosing.expected_cash : 0
-  const realActualNum = parseFloat(actualCash) || 0
-  const realLiveRemesa = realOpenClosing ? realActualNum - realOpenClosing.initial_cash : 0
-  const realLiveDiff = realOpenClosing ? realActualNum - realExpectedTotal : 0
-
-  // ── Demo closing form helpers ───────────────────────────────
-  const demoExpectedTotal = demoOpenClosing ? demoOpenClosing.initial_cash + demoOpenClosing.expected_cash : 0
-  const demoActualNum = parseFloat(actualCash) || 0
-  const demoLiveRemesa = demoOpenClosing ? demoActualNum - demoOpenClosing.initial_cash : 0
-  const demoLiveDiff = demoOpenClosing ? demoActualNum - demoExpectedTotal : 0
-
   return (
     <div className="space-y-6">
       <SectionHeader icon={<Banknote className="w-5 h-5" />} title="Cierre de caja" />
 
-      {/* ── Banner simulación ── */}
-      {demoMode && (
-        <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-sm font-semibold">
-          <Sparkles className="w-4 h-4 shrink-0" />
-          MODO SIMULACIÓN
-        </div>
-      )}
-
-      {demoMode ? (
-        /* ════════════════════════════════════════════════════════
-           DEMO MODE — simulation controls + real read-only ref
-        ════════════════════════════════════════════════════════ */
-        <>
-          {/* ── Simulación: tabla de turnos con acciones inline ── */}
-          <div className="space-y-3">
+      {/* ── Preview del período actual ── */}
+      {preview && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-              Estado de simulación
-            </p>
-            <div className="card overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-700/60 bg-amber-900/10">
-                      <th className="th">Turno</th>
-                      <th className="th">Horario</th>
-                      <th className="th">Estado</th>
-                      <th className="th">Esperado</th>
-                      <th className="th">Contado</th>
-                      <th className="th">Remesa</th>
-                      <th className="th">Diferencia</th>
-                      <th className="th">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {([1, 2, 3] as const).map(s => {
-                      const dc = summary?.closings.find(c => c.shift === s && c.is_demo)
-                      const isSelected = demoShift === s
-                      return (
-                        <tr
-                          key={s}
-                          onClick={() => { setDemoShift(s); setActualCash(''); setNotes(''); setError(null) }}
-                          className={`table-row cursor-pointer transition-colors ${isSelected ? 'bg-amber-900/20 border-l-2 border-amber-500' : ''}`}
-                        >
-                          <td className="td font-semibold">
-                            <span className={isSelected ? 'text-amber-300' : ''}>Turno {s}</span>
-                          </td>
-                          <td className="td text-slate-400 text-sm">{schedules[s]}</td>
-                          <td className="td">
-                            {dc ? (
-                              <span className={dc.status === 'CLOSED' ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
-                                {dc.status === 'CLOSED' ? 'CERRADA' : 'ABIERTA'}
-                              </span>
-                            ) : <span className="text-slate-600">—</span>}
-                          </td>
-                          <td className="td text-slate-200">{dc ? formatCurrency(dc.expected_cash) : '—'}</td>
-                          <td className="td text-slate-200">{dc?.actual_cash !== undefined ? formatCurrency(dc.actual_cash) : '—'}</td>
-                          <td className="td text-blue-300 font-semibold">{dc?.remesa !== undefined ? formatCurrency(dc.remesa) : '—'}</td>
-                          <td className={`td font-semibold ${dc?.difference === undefined ? '' : dc.difference >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {dc?.difference !== undefined ? formatCurrency(dc.difference) : '—'}
-                          </td>
-                          <td className="td" onClick={e => e.stopPropagation()}>
-                            <div className="flex gap-1.5">
-                              {(!dc || dc.status === 'CLOSED') && (
-                                <button
-                                  onClick={() => { setDemoShift(s); handleDemoOpen(s) }}
-                                  disabled={submitting}
-                                  className="px-2 py-1 rounded text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors"
-                                >
-                                  {dc?.status === 'CLOSED' ? 'Reabrir' : 'Abrir'}
-                                </button>
-                              )}
-                              {dc?.status === 'OPEN' && (
-                                <>
-                                  <button
-                                    onClick={() => { setDemoShift(s); setActualCash('') }}
-                                    className="px-2 py-1 rounded text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition-colors"
-                                  >
-                                    Cerrar
-                                  </button>
-                                  <button
-                                    onClick={() => handleDemoQuickClose(dc)}
-                                    disabled={submitting}
-                                    className="px-2 py-1 rounded text-[11px] font-semibold bg-slate-700/60 text-slate-300 border border-slate-600/40 hover:bg-slate-600/60 transition-colors"
-                                    title="Cerrar sin diferencia (monto esperado)"
-                                  >
-                                    Exacto
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-600">Clic en una fila para seleccionar el turno activo de simulación.</p>
-          </div>
-
-          {/* ── Formulario apertura/cierre del turno seleccionado ── */}
-          {!demoOpenClosing ? (
-            <div className="card p-6 space-y-4 border-amber-700/30">
-              <h3 className="font-semibold text-white">Abrir simulación - Turno {demoShift}</h3>
-              {error && <div className="bg-red-500/20 border border-red-500/40 rounded p-3 text-red-300 text-sm">{error}</div>}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Fondo fijo de apertura</label>
-                <input
-                  type="number"
-                  value={initialCash}
-                  onChange={(e) => { setInitialCash(e.target.value); setError(null) }}
-                  placeholder="0.00"
-                  step="0.01"
-                  className="input w-full"
-                />
-              </div>
-              <button
-                onClick={() => handleDemoOpen(demoShift)}
-                disabled={submitting}
-                className="btn-primary w-full justify-center py-2"
-              >
-                {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Abriendo…</> : <><Plus className="w-4 h-4" /> Abrir simulación</>}
-              </button>
-            </div>
-          ) : (
-            <div className="card p-6 space-y-4 border-amber-700/30">
-              <h3 className="font-semibold text-white">Cerrar simulación - Turno {demoShift}</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <InfoRow label="Fondo fijo" value={formatCurrency(demoOpenClosing.initial_cash)} />
-                <InfoRow label="Ingresos esperados" value={formatCurrency(demoOpenClosing.expected_cash)} />
-              </div>
-              <div className="px-3 py-2 rounded bg-slate-800/60 border border-slate-700/40 flex justify-between items-center">
-                <span className="text-xs text-slate-400 uppercase tracking-widest font-semibold">Total esperado en caja</span>
-                <span className="text-sm font-bold text-white">{formatCurrency(demoExpectedTotal)}</span>
-              </div>
-              <div className="pt-2 border-t border-slate-700/40 space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Monto contado</label>
-                  <input
-                    type="number"
-                    value={actualCash}
-                    onChange={(e) => setActualCash(e.target.value)}
-                    placeholder="0.00"
-                    step="0.01"
-                    className="input w-full"
-                  />
-                </div>
-                {actualCash && (
-                  <div className="space-y-2">
-                    <div className={`flex justify-between items-center text-sm font-semibold p-2.5 rounded border ${demoLiveDiff >= 0 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-red-500/20 text-red-300 border-red-500/40'}`}>
-                      <span>Diferencia de conteo</span><span>{formatCurrency(demoLiveDiff)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm font-semibold p-2.5 rounded border bg-blue-500/15 text-blue-300 border-blue-500/40">
-                      <span>Remesa (a retirar)</span><span>{formatCurrency(demoLiveRemesa)}</span>
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Notas (opcional)</label>
-                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ej: Diferencia por..." rows={2} className="input w-full resize-none" />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={handleDemoClose} disabled={submitting || !actualCash.trim()} className="btn-success flex-1 justify-center py-2">
-                  {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Cerrando…</> : <><CreditCard className="w-4 h-4" /> Cerrar simulación</>}
-                </button>
-                <button onClick={() => setActualCash(String(demoExpectedTotal))} className="btn-secondary px-3 py-2 text-xs" title="Sin diferencia">
-                  Sin diferencia
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── Cierres reales como referencia ── */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-slate-600 uppercase tracking-widest">Cierres reales (referencia)</p>
-            <div className="card overflow-hidden opacity-60">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-700/60 bg-slate-900/40">
-                      <th className="th">Turno</th><th className="th">Horario</th><th className="th">Estado</th>
-                      <th className="th">Fondo</th><th className="th">Esperado</th><th className="th">Contado</th>
-                      <th className="th">Remesa</th><th className="th">Diferencia</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[1, 2, 3].map(s => {
-                      const rc = summary?.closings.find(c => c.shift === s && !c.is_demo)
-                      return (
-                        <tr key={s} className={rc ? 'table-row' : 'table-row opacity-40'}>
-                          <td className="td font-semibold">Turno {s}</td>
-                          <td className="td text-slate-400 text-sm">{schedules[s]}</td>
-                          <td className="td">
-                            {rc ? <span className={rc.status === 'CLOSED' ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>{rc.status === 'CLOSED' ? 'CERRADA' : 'ABIERTA'}</span> : '—'}
-                          </td>
-                          <td className="td text-slate-200">{rc ? formatCurrency(rc.initial_cash) : '—'}</td>
-                          <td className="td text-slate-200">{rc ? formatCurrency(rc.expected_cash) : '—'}</td>
-                          <td className="td text-slate-200">{rc?.actual_cash !== undefined ? formatCurrency(rc.actual_cash) : '—'}</td>
-                          <td className="td text-blue-300 font-semibold">{rc?.remesa !== undefined ? formatCurrency(rc.remesa) : '—'}</td>
-                          <td className={`td font-semibold ${rc?.difference === undefined ? '' : rc.difference >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {rc?.difference !== undefined ? formatCurrency(rc.difference) : '—'}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : (
-        /* ════════════════════════════════════════════════════════
-           REAL MODE — normal operation on current shift
-        ════════════════════════════════════════════════════════ */
-        <>
-          {/* ── Turno actual ── */}
-          <div className="card p-5 border-blue-700/30">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Turno actual</p>
-                <p className="text-2xl font-bold text-blue-400 mt-1">Turno {realCurrentShift}</p>
-                {summary?.date && (
-                  <p className="text-xs text-slate-400 mt-2">
-                    {new Date(summary.date + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                  </p>
-                )}
-                <p className="text-xs text-slate-500 mt-1">Fondo fijo: {formatCurrency(fondoFijo)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Estado</p>
-                <span className={`inline-block mt-1 px-2 py-1 rounded text-xs font-semibold ${realOpenClosing ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-700/40 text-slate-300 border border-slate-600/40'}`}>
-                  {realOpenClosing ? 'ABIERTA' : 'CERRADA'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Formulario real ── */}
-          {!realOpenClosing ? (
-            <div className="card p-6 space-y-4 border-emerald-700/30">
-              <h3 className="font-semibold text-white">Abrir caja - Turno {realCurrentShift}</h3>
-              {error && <div className="bg-red-500/20 border border-red-500/40 rounded p-3 text-red-300 text-sm">{error}</div>}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Fondo fijo de apertura</label>
-                <input
-                  type="number"
-                  value={initialCash}
-                  onChange={(e) => { setInitialCash(e.target.value); setError(null) }}
-                  placeholder="0.00"
-                  step="0.01"
-                  className="input w-full"
-                />
-                <p className="text-xs text-slate-500 mt-2">Este monto permanece en la caja. Al cierre se retira el excedente como remesa.</p>
-              </div>
-              <button onClick={handleRealOpen} disabled={submitting} className="btn-primary w-full justify-center py-2">
-                {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Abriendo…</> : <><Plus className="w-4 h-4" /> Abrir caja</>}
-              </button>
-            </div>
-          ) : (
-            <div className="card p-6 space-y-4 border-amber-700/30">
-              <h3 className="font-semibold text-white">Cerrar caja - Turno {realCurrentShift}</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <InfoRow label="Fondo fijo" value={formatCurrency(realOpenClosing.initial_cash)} />
-                <InfoRow label="Ingresos esperados" value={formatCurrency(realOpenClosing.expected_cash)} />
-              </div>
-              <div className="px-3 py-2 rounded bg-slate-800/60 border border-slate-700/40 flex justify-between items-center">
-                <span className="text-xs text-slate-400 uppercase tracking-widest font-semibold">Total esperado en caja</span>
-                <span className="text-sm font-bold text-white">{formatCurrency(realExpectedTotal)}</span>
-              </div>
-              <div className="pt-2 border-t border-slate-700/40 space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Monto contado</label>
-                  <input type="number" value={actualCash} onChange={(e) => setActualCash(e.target.value)} placeholder="0.00" step="0.01" className="input w-full" />
-                </div>
-                {actualCash && (
-                  <div className="space-y-2">
-                    <div className={`flex justify-between items-center text-sm font-semibold p-2.5 rounded border ${realLiveDiff >= 0 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-red-500/20 text-red-300 border-red-500/40'}`}>
-                      <span>Diferencia de conteo</span><span>{formatCurrency(realLiveDiff)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm font-semibold p-2.5 rounded border bg-blue-500/15 text-blue-300 border-blue-500/40">
-                      <span>Remesa (a retirar)</span><span>{formatCurrency(realLiveRemesa)}</span>
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Notas (opcional)</label>
-                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ej: Diferencia por..." rows={2} className="input w-full resize-none" />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={handleRealClose} disabled={submitting || !actualCash.trim()} className="btn-success flex-1 justify-center py-2">
-                  {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Cerrando…</> : <><CreditCard className="w-4 h-4" /> Cerrar caja</>}
-                </button>
-                <button onClick={() => setActualCash(String(realExpectedTotal))} className="btn-secondary px-3 py-2 text-xs">Sin diferencia</button>
-              </div>
-            </div>
-          )}
-
-          {/* ── Resumen del día (real) ── */}
-          {summary && (
-            <div className="space-y-3">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Resumen del día</p>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="card px-4 py-3">
-                  <p className="text-sm font-bold text-emerald-400">{formatCurrency(summary.total_expected)}</p>
-                  <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Ingresos esperados</p>
-                </div>
-                <div className="card px-4 py-3">
-                  <p className="text-sm font-bold text-blue-400">{formatCurrency(summary.total_remesa ?? 0)}</p>
-                  <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Remesa total</p>
-                </div>
-                <div className="card px-4 py-3">
-                  <p className={`text-sm font-bold ${(summary.total_difference ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {formatCurrency(summary.total_difference ?? 0)}
-                  </p>
-                  <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Diferencia</p>
-                </div>
-              </div>
-              <div className="card overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-slate-700/60 bg-slate-900/40">
-                        <th className="th">Turno</th><th className="th">Horario</th><th className="th">Estado</th>
-                        <th className="th">Fondo fijo</th><th className="th">Esperado</th><th className="th">Contado</th>
-                        <th className="th">Remesa</th><th className="th">Diferencia</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[1, 2, 3].map(s => {
-                        const rc = summary.closings.find(c => c.shift === s && !c.is_demo)
-                        return (
-                          <tr key={s} className={rc ? 'table-row' : 'table-row opacity-40'}>
-                            <td className="td font-semibold">Turno {s}</td>
-                            <td className="td text-slate-400 text-sm">{schedules[s]}</td>
-                            <td className="td">
-                              {rc ? <span className={rc.status === 'CLOSED' ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>{rc.status === 'CLOSED' ? 'CERRADA' : 'ABIERTA'}</span> : '—'}
-                            </td>
-                            <td className="td text-slate-200">{rc ? formatCurrency(rc.initial_cash) : '—'}</td>
-                            <td className="td text-slate-200">{rc ? formatCurrency(rc.expected_cash) : '—'}</td>
-                            <td className="td text-slate-200">{rc?.actual_cash !== undefined ? formatCurrency(rc.actual_cash) : '—'}</td>
-                            <td className="td text-blue-300 font-semibold">{rc?.remesa !== undefined ? formatCurrency(rc.remesa) : '—'}</td>
-                            <td className={`td font-semibold ${rc?.difference === undefined ? '' : rc.difference >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {rc?.difference !== undefined ? formatCurrency(rc.difference) : '—'}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── Dialog de confirmación ── */}
-      {confirmDialog && (
-        <Modal title="Confirmación requerida" onClose={() => setConfirmDialog(null)}>
-          <p className="text-slate-300 text-sm whitespace-pre-line mb-4">{confirmDialog.message}</p>
-          <div className="flex gap-2 justify-end">
-            <button onClick={() => setConfirmDialog(null)} className="btn-secondary">Cancelar</button>
-            <button onClick={confirmDialog.onConfirm} disabled={submitting} className="btn-warning">
-              {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Procesando…</> : <>Confirmar</>}
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── Panel de simulación ── */}
-      <div className="card p-5 space-y-4 border-amber-700/20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            <span className="text-sm font-semibold text-slate-300">Modo simulación</span>
-          </div>
-          <button
-            onClick={() => { setDemoMode(v => !v); setError(null); setActualCash(''); setNotes('') }}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${demoMode ? 'bg-amber-500' : 'bg-slate-700'}`}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${demoMode ? 'translate-x-6' : 'translate-x-1'}`} />
-          </button>
-        </div>
-        {demoMode && (
-          <div className="space-y-3 pt-1 border-t border-slate-700/40">
-            <p className="text-xs text-slate-500">
-              Las simulaciones son independientes de los cierres reales. Al reiniciar solo se eliminan registros de simulación.
+              Período actual
             </p>
             <button
-              onClick={() => setConfirmDialog({
-                message: 'Se eliminarán todos los cierres de simulación de hoy.\n\nLos registros reales no se modifican.\n\n¿Continuar?',
-                onConfirm: () => { setConfirmDialog(null); handleReset() },
-              })}
-              disabled={resetting || !summary?.closings.some(c => c.is_demo)}
-              className="btn-warning w-full justify-center py-2 text-sm"
+              onClick={loadData}
+              disabled={loading}
+              className="btn-secondary py-1 px-3 text-xs flex items-center gap-1.5"
             >
-              {resetting ? <><Loader2 className="w-4 h-4 animate-spin" /> Reiniciando…</> : <><RefreshCw className="w-4 h-4" /> Reiniciar simulaciones de hoy</>}
+              <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+              Actualizar
             </button>
+          </div>
+
+          <div className="text-[11px] text-slate-500 mb-1">
+            Desde:{' '}
+            <span className="text-slate-400">
+              {preview.period_from === '1970-01-01T00:00:00Z' || new Date(preview.period_from).getFullYear() === 1970
+                ? 'Inicio del historial'
+                : formatDateTime(preview.period_from)}
+            </span>
+            {' → '}
+            Hasta ahora
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="card px-4 py-3">
+              <p className="text-lg font-bold text-emerald-400">{formatCurrency(preview.cash_amount)}</p>
+              <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Efectivo cobrado</p>
+            </div>
+            <div className="card px-4 py-3">
+              <p className="text-lg font-bold text-purple-400">{formatCurrency(preview.digital_amount)}</p>
+              <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Digital cobrado</p>
+            </div>
+            <div className="card px-4 py-3">
+              <p className="text-lg font-bold text-white">{formatCurrency(preview.total_amount)}</p>
+              <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Total combinado</p>
+            </div>
+            <div className="card px-4 py-3">
+              <p className="text-lg font-bold text-blue-400">{preview.stay_count}</p>
+              <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Estadías del período</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Formulario de cierre ── */}
+      <div className="card p-6 space-y-4 border-emerald-700/30">
+        <h3 className="font-semibold text-white">Realizar cierre de caja</h3>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
+            Empleado que cierra
+          </label>
+          <select
+            value={employeeName}
+            onChange={(e) => setEmployeeName(e.target.value)}
+            className="input w-full"
+          >
+            <option value="">— Seleccionar empleado —</option>
+            {EMPLOYEES.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
+            Monto en efectivo contado
+          </label>
+          <input
+            type="number"
+            value={actualCash}
+            onChange={(e) => setActualCash(e.target.value)}
+            placeholder="0.00"
+            step="0.01"
+            className="input w-full"
+          />
+        </div>
+
+        {actualCash && preview && (
+          <div className={`flex justify-between items-center text-sm font-semibold p-2.5 rounded border ${liveDiff >= 0 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-red-500/20 text-red-300 border-red-500/40'}`}>
+            <span>Diferencia (contado vs esperado en efectivo)</span>
+            <span>{liveDiff >= 0 ? '+' : ''}{formatCurrency(liveDiff)}</span>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
+            Observaciones (opcional)
+          </label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Ej: Diferencia por billete roto..."
+            rows={2}
+            className="input w-full resize-none"
+          />
+        </div>
+
+        {!confirming ? (
+          <button
+            onClick={() => setConfirming(true)}
+            disabled={!canSubmit}
+            className="btn-success w-full justify-center py-2"
+          >
+            <CreditCard className="w-4 h-4" />
+            Cerrar Caja
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-sm text-amber-300 font-semibold text-center">
+              ¿Confirmar cierre de caja por {employeeName}?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirming(false)}
+                className="btn-secondary flex-1 justify-center py-2"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleClose}
+                disabled={submitting}
+                className="btn-success flex-1 justify-center py-2"
+              >
+                {submitting
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Cerrando…</>
+                  : 'Confirmar'}
+              </button>
+            </div>
           </div>
         )}
       </div>
+
+      {/* ── Historial de cierres ── */}
+      {history.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+            Historial de cierres
+          </p>
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-700/60 bg-slate-900/40">
+                    <th className="th">Fecha y hora</th>
+                    <th className="th">Empleado</th>
+                    <th className="th">Efectivo esperado</th>
+                    <th className="th">Contado</th>
+                    <th className="th">Digital</th>
+                    <th className="th">Total</th>
+                    <th className="th">Diferencia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((c) => (
+                    <tr key={c.id} className="table-row">
+                      <td className="td text-slate-300 text-sm">{formatDateTime(c.closed_at)}</td>
+                      <td className="td font-semibold text-white">{c.employee_name}</td>
+                      <td className="td text-slate-200">{formatCurrency(c.cash_amount)}</td>
+                      <td className="td text-slate-200">{formatCurrency(c.actual_cash)}</td>
+                      <td className="td text-purple-300">{formatCurrency(c.digital_amount)}</td>
+                      <td className="td font-semibold text-white">{formatCurrency(c.total_amount)}</td>
+                      <td className={`td font-semibold ${c.difference >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {c.difference >= 0 ? '+' : ''}{formatCurrency(c.difference)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {history.length === 0 && !loading && (
+        <p className="text-center text-slate-600 text-sm py-4">No hay cierres registrados aún.</p>
+      )}
     </div>
   )
 }
