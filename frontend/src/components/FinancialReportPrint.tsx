@@ -1,5 +1,6 @@
 import { FinancialReportData } from '../api/admin'
 import { formatCurrency, formatDuration } from '../lib/utils'
+import logoGeneral from '../../logos/logogeneral.png'
 
 interface FinancialReportPrintProps {
   report: FinancialReportData
@@ -107,13 +108,7 @@ export function FinancialReportPrint({ report }: FinancialReportPrintProps) {
           width: 48px !important;
           height: 48px !important;
           border-radius: 10px !important;
-          background: #0b3b91 !important;
-          color: white !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          font-size: 26px !important;
-          font-weight: 800 !important;
+          object-fit: contain !important;
           flex-shrink: 0 !important;
         }
 
@@ -378,7 +373,7 @@ export function FinancialReportPrint({ report }: FinancialReportPrintProps) {
 
           .report-header { margin-bottom: 12px !important; gap: 14px !important; }
           .report-brand { gap: 10px !important; }
-          .report-logo { width: 38px !important; height: 38px !important; font-size: 20px !important; border-radius: 8px !important; }
+          .report-logo { width: 38px !important; height: 38px !important; border-radius: 8px !important; object-fit: contain !important; }
           .report-brand h2 { font-size: 20px !important; }
           .report-brand span { font-size: 10px !important; }
           .report-title h1 { font-size: 28px !important; margin-bottom: 2px !important; }
@@ -419,7 +414,7 @@ export function FinancialReportPrint({ report }: FinancialReportPrintProps) {
         {/* HEADER */}
         <div className="report-header">
           <div className="report-brand">
-            <div className="report-logo">P</div>
+            <img src={logoGeneral} className="report-logo" alt="Logo" />
             <div>
               <h2>PARKING</h2>
               <span>SISTEMA DE ESTACIONAMIENTO</span>
