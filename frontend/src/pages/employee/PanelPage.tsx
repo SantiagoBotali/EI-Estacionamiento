@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Banknote, Camera, Car, ChevronRight, ClipboardList,
-  CreditCard, Loader2, LogOut, MapPin,
+  CreditCard, FileText, Loader2, LogOut, MapPin,
   Plus, RefreshCw, Search, Sparkles, Users, X,
 } from 'lucide-react'
 import { getRole, getToken, getUsername, clearAuth } from '../../api/client'
@@ -337,6 +337,7 @@ function StaysTab({ toast, globalCashRequest, onClearGlobalRequest }: { toast: R
   // ── Shared payment handlers ──────────────────────────────
   const [cashModal, setCashModal] = useState<{ stayId: string; amount: number } | null>(null)
   const [paying, setPaying]       = useState(false)
+  const [notesModal, setNotesModal] = useState<string | null>(null)
 
   const handleCash = async () => {
     if (!cashModal) return
@@ -524,6 +525,15 @@ function StaysTab({ toast, globalCashRequest, onClearGlobalRequest }: { toast: R
                             <CreditCard className="w-3.5 h-3.5" />
                             Efectivo
                           </button>
+                          {s.notes && (
+                            <button
+                              onClick={() => setNotesModal(s.notes!)}
+                              className="btn-ghost py-1 px-2 text-xs text-amber-400 hover:text-amber-300"
+                              title="Ver observaciones"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -535,6 +545,16 @@ function StaysTab({ toast, globalCashRequest, onClearGlobalRequest }: { toast: R
           </div>
         )}
       </div>
+
+      {/* ── Notes modal ── */}
+      {notesModal && (
+        <Modal title="Observaciones" onClose={() => setNotesModal(null)}>
+          <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">{notesModal}</p>
+          <div className="flex justify-end mt-5">
+            <button onClick={() => setNotesModal(null)} className="btn-secondary">Cerrar</button>
+          </div>
+        </Modal>
+      )}
 
       {/* ── Cash modal (shared) ── */}
       {cashModal && (

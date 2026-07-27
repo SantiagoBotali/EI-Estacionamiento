@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Activity, BarChart2, Calendar, Camera, Car, ClipboardList, Clock, CreditCard,
-  DollarSign, Download, Loader2, LogOut, MapPin, Plus, Printer,
+  Activity, Banknote, BarChart2, Calendar, Camera, Car, ClipboardList, Clock, CreditCard,
+  DollarSign, Download, FileText, Loader2, LogOut, MapPin, Plus, Printer,
   RefreshCw, Search, Settings, ShieldCheck, Sparkles, TrendingUp, Users, Wifi, WifiOff, X, Zap,
 } from 'lucide-react'
 import {
@@ -34,16 +34,17 @@ import { useClock } from '../../hooks/useClock'
 import { useToast } from '../../components/ui/Toast'
 import { formatCurrency, formatDateTime, formatDuration, getStatusBadge, getStatusLabel } from '../../lib/utils'
 
-type Tab = 'operations' | 'finance' | 'camera' | 'live' | 'dashboards' | 'stays' | 'reports'
+type Tab = 'operations' | 'finance' | 'camera' | 'live' | 'dashboards' | 'stays' | 'reports' | 'cashclosings'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
-  { id: 'operations', icon: <BarChart2 className="w-5 h-5" />, label: 'Operaciones' },
-  { id: 'finance', icon: <DollarSign className="w-5 h-5" />, label: 'Finanzas' },
-  { id: 'stays', icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías' },
-  { id: 'dashboards', icon: <Calendar className="w-5 h-5" />, label: 'Dashboards' },
-  { id: 'reports', icon: <TrendingUp className="w-5 h-5" />, label: 'Reportes' },
-  { id: 'camera', icon: <Camera className="w-5 h-5" />, label: 'Cámara' },
-  { id: 'live', icon: <MapPin className="w-5 h-5" />, label: 'En vivo' },
+  { id: 'operations',   icon: <BarChart2    className="w-5 h-5" />, label: 'Operaciones'     },
+  { id: 'finance',      icon: <DollarSign   className="w-5 h-5" />, label: 'Finanzas'        },
+  { id: 'cashclosings', icon: <Banknote     className="w-5 h-5" />, label: 'Cierres de caja' },
+  { id: 'stays',        icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías'       },
+  { id: 'dashboards',   icon: <Calendar     className="w-5 h-5" />, label: 'Dashboards'      },
+  { id: 'reports',      icon: <TrendingUp   className="w-5 h-5" />, label: 'Reportes'        },
+  { id: 'camera',       icon: <Camera       className="w-5 h-5" />, label: 'Cámara'          },
+  { id: 'live',         icon: <MapPin       className="w-5 h-5" />, label: 'En vivo'         },
 ]
 
 const CHART_THEME = {
@@ -149,9 +150,10 @@ export function AdminDashboardPage() {
       {/* ── Content ── */}
       <main className="flex-1 overflow-auto">
         <div className="p-5 lg:p-7 animate-fade-in">
-          {tab === 'operations' && <OperationsTab toast={toast} />}
-          {tab === 'finance' && <FinanceTab toast={toast} />}
-          {tab === 'stays' && <StaysTab toast={toast} />}
+          {tab === 'operations'   && <OperationsTab    toast={toast} />}
+          {tab === 'finance'      && <FinanceTab       toast={toast} />}
+          {tab === 'cashclosings' && <CashClosingsTab  toast={toast} />}
+          {tab === 'stays'        && <StaysTab         toast={toast} />}
           {tab === 'dashboards' && <DashboardsTab toast={toast} />}
           {tab === 'reports' && <ReportsTab toast={toast} />}
           {tab === 'camera' && <CameraTab toast={toast} />}
@@ -405,69 +407,172 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Sub-componente: Historial de cierres de caja (para admin)
+   Tab: Cierres de caja
 ───────────────────────────────────────────────────────────── */
-function CashClosingHistory({ toast }: { toast: ReturnType<typeof useToast> }) {
-  const [history, setHistory] = useState<CashClosing[]>([])
-  const [loading, setLoading] = useState(true)
+function CashClosingsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
+  const [history, setHistory]       = useState<CashClosing[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [filterMonth, setFilterMonth] = useState('') // YYYY-MM
+  const [filterDate, setFilterDate]   = useState('') // YYYY-MM-DD
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
-  useEffect(() => {
-    listCashClosings()
-      .then(setHistory)
-      .catch((e) => toast('error', (e as Error).message))
-      .finally(() => setLoading(false))
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      setHistory(await listCashClosings())
+      setLastRefresh(new Date())
+    } catch (e) {
+      toast('error', (e as Error).message)
+    } finally {
+      setLoading(false)
+    }
   }, [toast])
 
-  if (loading) {
-    return (
-      <div className="h-20 flex items-center justify-center">
-        <Loader2 className="w-5 h-5 animate-spin text-slate-600" />
-      </div>
-    )
-  }
+  useEffect(() => { load() }, [load])
+
+  const filtered = history.filter((c) => {
+    const d = new Date(c.closed_at)
+    if (filterDate) {
+      const fd = new Date(filterDate + 'T00:00:00')
+      return d.getFullYear() === fd.getFullYear() &&
+             d.getMonth()    === fd.getMonth()    &&
+             d.getDate()     === fd.getDate()
+    }
+    if (filterMonth) {
+      const [y, m] = filterMonth.split('-').map(Number)
+      return d.getFullYear() === y && d.getMonth() + 1 === m
+    }
+    return true
+  })
+
+  const totals = filtered.reduce(
+    (acc, c) => ({
+      cash:    acc.cash    + c.cash_amount,
+      actual:  acc.actual  + c.actual_cash,
+      digital: acc.digital + c.digital_amount,
+      total:   acc.total   + c.total_amount,
+      diff:    acc.diff    + c.difference,
+      stays:   acc.stays   + c.stay_count,
+    }),
+    { cash: 0, actual: 0, digital: 0, total: 0, diff: 0, stays: 0 },
+  )
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-        Historial de cierres de caja
-      </p>
-      {history.length === 0 ? (
-        <p className="text-slate-600 text-sm py-3">No hay cierres registrados aún.</p>
-      ) : (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-700/60 bg-slate-900/40">
-                  <th className="th">Fecha y hora</th>
-                  <th className="th">Empleado</th>
-                  <th className="th">Estadías</th>
-                  <th className="th">Efectivo esperado</th>
-                  <th className="th">Contado</th>
-                  <th className="th">Digital</th>
-                  <th className="th">Total</th>
-                  <th className="th">Diferencia</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((c) => (
-                  <tr key={c.id} className="table-row">
-                    <td className="td text-slate-300 text-sm">{formatDateTime(c.closed_at)}</td>
-                    <td className="td font-semibold text-white">{c.employee_name}</td>
-                    <td className="td text-slate-400">{c.stay_count}</td>
-                    <td className="td text-slate-200">{formatCurrency(c.cash_amount)}</td>
-                    <td className="td text-slate-200">{formatCurrency(c.actual_cash)}</td>
-                    <td className="td text-purple-300">{formatCurrency(c.digital_amount)}</td>
-                    <td className="td font-semibold text-white">{formatCurrency(c.total_amount)}</td>
-                    <td className={`td font-semibold ${c.difference >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {c.difference >= 0 ? '+' : ''}{formatCurrency(c.difference)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+    <div className="space-y-6">
+      <AdminHeader
+        icon={<Banknote className="w-5 h-5" />}
+        title="Cierres de caja"
+        lastRefresh={lastRefresh}
+        onRefresh={load}
+      />
+
+      {/* ── Filtros ── */}
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest shrink-0">Mes</label>
+          <input
+            type="month"
+            value={filterMonth}
+            onChange={(e) => { setFilterMonth(e.target.value); setFilterDate('') }}
+            className="input py-1.5 px-3 text-sm"
+          />
         </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest shrink-0">Fecha</label>
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(e) => { setFilterDate(e.target.value); setFilterMonth('') }}
+            className="input py-1.5 px-3 text-sm"
+          />
+        </div>
+        {(filterMonth || filterDate) && (
+          <button
+            onClick={() => { setFilterMonth(''); setFilterDate('') }}
+            className="btn-ghost text-xs flex items-center gap-1.5"
+          >
+            <X className="w-3 h-3" /> Limpiar filtro
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <LoadingScreen />
+      ) : filtered.length === 0 ? (
+        <div className="card px-6 py-12 text-center text-slate-600">
+          <Banknote className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p>{history.length === 0
+            ? 'No hay cierres registrados aún.'
+            : 'No hay cierres para el período seleccionado.'}</p>
+        </div>
+      ) : (
+        <>
+          {/* ── KPIs de resumen (solo cuando hay más de un resultado) ── */}
+          {filtered.length > 1 && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="card px-4 py-3">
+                <p className="text-lg font-bold text-emerald-400">{formatCurrency(totals.total)}</p>
+                <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Total cobrado</p>
+              </div>
+              <div className="card px-4 py-3">
+                <p className="text-lg font-bold text-blue-400">{totals.stays}</p>
+                <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Estadías</p>
+              </div>
+              <div className="card px-4 py-3">
+                <p className="text-lg font-bold text-purple-400">{formatCurrency(totals.digital)}</p>
+                <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Digital</p>
+              </div>
+              <div className="card px-4 py-3">
+                <p className={`text-lg font-bold ${totals.diff >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {totals.diff >= 0 ? '+' : ''}{formatCurrency(totals.diff)}
+                </p>
+                <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">Diferencia neta</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tabla ── */}
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-700/60 bg-slate-900/40">
+                    <th className="th">Fecha y hora</th>
+                    <th className="th">Empleado</th>
+                    <th className="th">Estadías</th>
+                    <th className="th">Efectivo esperado</th>
+                    <th className="th">Contado</th>
+                    <th className="th">Digital</th>
+                    <th className="th">Total</th>
+                    <th className="th">Diferencia</th>
+                    <th className="th">Observaciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((c) => (
+                    <tr key={c.id} className="table-row">
+                      <td className="td text-slate-300 text-sm">{formatDateTime(c.closed_at)}</td>
+                      <td className="td font-semibold text-white">{c.employee_name}</td>
+                      <td className="td text-slate-400">{c.stay_count}</td>
+                      <td className="td text-slate-200">{formatCurrency(c.cash_amount)}</td>
+                      <td className="td text-slate-200">{formatCurrency(c.actual_cash)}</td>
+                      <td className="td text-purple-300">{formatCurrency(c.digital_amount)}</td>
+                      <td className="td font-semibold text-white">{formatCurrency(c.total_amount)}</td>
+                      <td className={`td font-semibold ${c.difference >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {c.difference >= 0 ? '+' : ''}{formatCurrency(c.difference)}
+                      </td>
+                      <td className="td text-slate-400 text-xs max-w-[200px]">
+                        {c.notes
+                          ? <span title={c.notes} className="truncate block">{c.notes}</span>
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
@@ -660,8 +765,6 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         </ChartCard>
       </div>
 
-      {/* ── Historial de cierres de caja ── */}
-      <CashClosingHistory toast={toast} />
     </div>
   )
 }
@@ -1490,6 +1593,7 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   const [cashModal, setCashModal] = useState<{ stayId: string; amount: number } | null>(null)
   const [paying, setPaying] = useState(false)
+  const [notesModal, setNotesModal] = useState<string | null>(null)
 
   const handleCash = async () => {
     if (!cashModal) return
@@ -1661,6 +1765,15 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                               <CreditCard className="w-3.5 h-3.5" />
                               Efectivo
                             </button>
+                            {s.notes && (
+                              <button
+                                onClick={() => setNotesModal(s.notes!)}
+                                className="btn-ghost py-1 px-2 text-xs text-amber-400 hover:text-amber-300"
+                                title="Ver observaciones"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1672,6 +1785,16 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           </div>
         )}
       </div>
+
+      {/* Notes modal */}
+      {notesModal && (
+        <StaysModal title="Observaciones" onClose={() => setNotesModal(null)}>
+          <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">{notesModal}</p>
+          <div className="flex justify-end mt-5">
+            <button onClick={() => setNotesModal(null)} className="btn-secondary">Cerrar</button>
+          </div>
+        </StaysModal>
+      )}
 
       {/* Cash modal */}
       {cashModal && (
