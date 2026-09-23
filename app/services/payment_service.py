@@ -103,6 +103,34 @@ def create_mp_preference(db: Session, stay_id: str) -> dict:
     grace = int(get_setting(db, "grace_period_minutes", "15"))
     amount = calculate_price(stay.entry_at, now, rate_per_hour=rate, minimum_charge=minimum, grace_period_minutes=grace)
 
+    # Grace period: close for free immediately — do NOT create an MP preference
+    if amount == 0.0:
+        now_ars = now.replace(tzinfo=None) - timedelta(hours=3)
+        stay.exit_at = now_ars
+        stay.amount_paid = 0.0
+        stay.amount_expected = 0.0
+        stay.payment_method = PaymentMethod.CASH
+        stay.status = StayStatus.CLOSED
+        free_payment = Payment(
+            stay_id=stay.id,
+            method=PaymentMethod.CASH,
+            amount=0.0,
+            status=PaymentStatus.APPROVED,
+            processed_at=now,
+        )
+        db.add(free_payment)
+        db.commit()
+        db.refresh(free_payment)
+        logger.info("Stay %s closed for free (within grace period)", stay_id)
+        return {
+            "qr_data": "",
+            "checkout_url": "",
+            "amount": 0.0,
+            "payment_id": free_payment.id,
+            "is_emv": False,
+            "free": True,
+        }
+
     # Update stay to PAYMENT_PENDING
     stay.status = StayStatus.PAYMENT_PENDING
     stay.amount_expected = amount
@@ -155,7 +183,7 @@ def create_mp_preference(db: Session, stay_id: str) -> dict:
         "items": [
             {
                 "id": stay_id,
-                "title": f"Estacionamiento SDG+ — {ticket_code}",
+                "title": f"Estacionamiento EI — {ticket_code}",
                 "quantity": 1,
                 "unit_price": float(amount) if amount > 0 else 1.0,
                 "currency_id": "ARS",
@@ -163,7 +191,7 @@ def create_mp_preference(db: Session, stay_id: str) -> dict:
         ],
         "external_reference": stay_id,
         "notification_url": f"{base_url}/api/payments/mercadopago/webhook",
-        "statement_descriptor": "ESTACIONAMIENTO SDG",
+        "statement_descriptor": "ESTACIONAMIENTO EI",
     }
 
     sdk = _sdk()

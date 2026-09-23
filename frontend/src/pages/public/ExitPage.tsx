@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import {
   exitLookup,
+  exitPayCash,
   requestCashPayment,
   createMPPreference,
   checkMPPaymentStatus,
@@ -96,12 +97,37 @@ export function ExitPage() {
     }
   }
 
+  const handleFreeExit = async () => {
+    if (!lookupData) return
+    setError(null)
+    setPhase('paying')
+    try {
+      const result = await exitPayCash(lookupData.stay_id)
+      setPayResult(result)
+      setPhase('success')
+    } catch (e) {
+      setError((e as Error).message)
+      setPhase('found')
+    }
+  }
+
   const handleOpenMP = async () => {
     if (!lookupData) return
     setError(null)
     setPhase('qr_loading')
     try {
       const pref = await createMPPreference(lookupData.stay_id)
+      // Grace period: stay was closed for free on the server
+      if (pref.free) {
+        setPayResult({
+          stay_id: lookupData.stay_id,
+          amount_paid: 0,
+          payment_method: 'CASH',
+          exit_at: new Date().toISOString(),
+        })
+        setPhase('success')
+        return
+      }
       setMpPref(pref)
       setPhase('qr')
       startPolling(lookupData.stay_id)
@@ -271,24 +297,39 @@ export function ExitPage() {
 
               {/* Payment buttons */}
               <div className="space-y-3 pt-1">
-                <button
-                  onClick={handleCash}
-                  className="w-full flex items-center justify-center gap-3
-                             bg-emerald-700 hover:bg-emerald-600
-                             text-white font-semibold py-4 rounded-xl transition-colors"
-                >
-                  <Banknote className="w-6 h-6" />
-                  Pagar en Efectivo
-                </button>
-                <button
-                  onClick={handleOpenMP}
-                  className="w-full flex items-center justify-center gap-3
-                             bg-sky-700 hover:bg-sky-600
-                             text-white font-semibold py-4 rounded-xl transition-colors"
-                >
-                  <QrCode className="w-6 h-6" />
-                  Pagar con QR / Mercado Pago
-                </button>
+                {lookupData.amount === 0 ? (
+                  <button
+                    onClick={handleFreeExit}
+                    disabled={phase === 'paying'}
+                    className="w-full flex items-center justify-center gap-3
+                               bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50
+                               text-white font-semibold py-4 rounded-xl transition-colors"
+                  >
+                    <CheckCircle2 className="w-6 h-6" />
+                    Confirmar salida gratuita
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleCash}
+                      className="w-full flex items-center justify-center gap-3
+                                 bg-emerald-700 hover:bg-emerald-600
+                                 text-white font-semibold py-4 rounded-xl transition-colors"
+                    >
+                      <Banknote className="w-6 h-6" />
+                      Pagar en Efectivo
+                    </button>
+                    <button
+                      onClick={handleOpenMP}
+                      className="w-full flex items-center justify-center gap-3
+                                 bg-sky-700 hover:bg-sky-600
+                                 text-white font-semibold py-4 rounded-xl transition-colors"
+                    >
+                      <QrCode className="w-6 h-6" />
+                      Pagar con QR / Mercado Pago
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

@@ -84,6 +84,7 @@ export interface MPPreferenceResponse {
   amount: number
   payment_id: string
   is_emv: boolean        // true = QR nativo MP app, false = URL checkout
+  free?: boolean         // true = dentro del período de gracia, estadía ya cerrada sin cobro
 }
 
 export interface MPStatusResponse {

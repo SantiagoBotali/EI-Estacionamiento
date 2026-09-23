@@ -184,7 +184,7 @@ hr{border:none;border-top:1px dashed #ccc;margin:6px 0;}
 .footer{font-size:9px;color:#aaa;}
 </style>
 </head><body>
-<h1>Estacionamiento SDG+</h1>
+<h1>Estacionamiento EI</h1>
 <p class="sub">Sistema Inteligente de Gestión</p>
 <hr/>
 <p class="label">Código de ticket</p>

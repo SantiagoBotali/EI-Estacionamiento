@@ -53,7 +53,7 @@ def _get_or_create_store(db: Session, user_id: str) -> int:
 
     # city_name must match MP's accepted list; "Buenos Aires" is always valid
     payload = {
-        "name": "Estacionamiento SDG+",
+        "name": "Estacionamiento EI",
         "external_id": "SDGSTORE01",
         "location": {
             "street_name": "Av. Corrientes",
@@ -109,7 +109,7 @@ def get_or_create_pos(db: Session) -> tuple[str, str]:
     store_id = _get_or_create_store(db, user_id)
 
     payload = {
-        "name": "Caja SDG+ 1",
+        "name": "Caja EI 1",
         "external_id": EXTERNAL_POS_ID,
         "store_id": store_id,
         "fixed_amount": False,
@@ -147,7 +147,7 @@ def create_qr_order(
 
     payload = {
         "external_reference": stay_id,
-        "title": "Estacionamiento SDG+",
+        "title": "Estacionamiento EI",
         "description": f"Ticket {ticket_code}",
         "notification_url": f"{base_url}/api/payments/mercadopago/webhook",
         "total_amount": unit_price,
