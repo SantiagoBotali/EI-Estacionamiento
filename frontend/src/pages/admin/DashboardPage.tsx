@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Activity, Banknote, BarChart2, Calendar, Camera, Car, ClipboardList, Clock, CreditCard,
-  DollarSign, Download, FileText, Loader2, LogOut, MapPin, Plus, Printer,
+  DollarSign, Download, FileText, Loader2, LogOut, Plus, Printer,
   RefreshCw, Search, Settings, ShieldCheck, Sparkles, TrendingUp, Users, Wifi, WifiOff, X, Zap,
 } from 'lucide-react'
 import {
@@ -21,10 +21,6 @@ import {
   listCashClosings,
   type ActiveStay, type StayLookupResponse, type TariffInfo, type CashClosing,
 } from '../../api/employee'
-import {
-  getParkingState,
-  type ParkingState,
-} from '../../api/parking'
 import { CameraFeed } from '../../components/CameraFeed'
 import { ParkingMap } from '../../components/ParkingMap'
 import { FinancialReportPrint } from '../../components/FinancialReportPrint'
@@ -34,7 +30,7 @@ import { useClock } from '../../hooks/useClock'
 import { useToast } from '../../components/ui/Toast'
 import { formatCurrency, formatDateTime, formatDuration, getStatusBadge, getStatusLabel } from '../../lib/utils'
 
-type Tab = 'operations' | 'finance' | 'camera' | 'live' | 'dashboards' | 'stays' | 'reports' | 'cashclosings'
+type Tab = 'operations' | 'finance' | 'live' | 'dashboards' | 'stays' | 'reports' | 'cashclosings'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'operations',   icon: <BarChart2    className="w-5 h-5" />, label: 'Operaciones'     },
@@ -43,8 +39,7 @@ const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'stays',        icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías'       },
   { id: 'dashboards',   icon: <Calendar     className="w-5 h-5" />, label: 'Dashboards'      },
   { id: 'reports',      icon: <TrendingUp   className="w-5 h-5" />, label: 'Reportes'        },
-  { id: 'camera',       icon: <Camera       className="w-5 h-5" />, label: 'Cámara'          },
-  { id: 'live',         icon: <MapPin       className="w-5 h-5" />, label: 'En vivo'         },
+  { id: 'live',         icon: <Camera       className="w-5 h-5" />, label: 'En vivo'         },
 ]
 
 const CHART_THEME = {
@@ -156,7 +151,6 @@ export function AdminDashboardPage() {
           {tab === 'stays'        && <StaysTab         toast={toast} />}
           {tab === 'dashboards' && <DashboardsTab toast={toast} />}
           {tab === 'reports' && <ReportsTab toast={toast} />}
-          {tab === 'camera' && <CameraTab toast={toast} />}
           {tab === 'live' && <LiveTab />}
         </div>
       </main>
@@ -771,68 +765,20 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Tab: Cámara
-───────────────────────────────────────────────────────────── */
-function CameraTab({ toast }: { toast: ReturnType<typeof useToast> }) {
-  const [parkState, setParkState] = useState<ParkingState | null>(null)
-
-  const load = useCallback(async () => {
-    try {
-      setParkState(await getParkingState())
-    } catch (e) {
-      toast('error', (e as Error).message)
-    }
-  }, [toast])
-
-  useEffect(() => {
-    load()
-    const id = setInterval(load, 2000)
-    return () => clearInterval(id)
-  }, [load])
-
-  const free = parkState?.free ?? '—'
-  const occupied = parkState ? parkState.total - parkState.free : '—'
-  const pct = parkState ? Math.round(parkState.occupancy_rate * 100) : '—'
-
-  return (
-    <div className="space-y-5">
-      <SectionHeader icon={<Camera className="w-5 h-5" />} title="Cámara en vivo" />
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        {/* Camera */}
-        <div className="xl:col-span-2">
-          <CameraFeed className="w-full" style={{ aspectRatio: '16/9', maxHeight: 'calc(100vh - 7rem)' } as React.CSSProperties} />
-        </div>
-
-        {/* Stats panel */}
-        <div className="space-y-3">
-          <div className="card p-5 space-y-4">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-              Estado actual
-            </p>
-            <div className="space-y-3">
-              <StatRow label="Lugares libres" value={free} color="text-emerald-400" />
-              <StatRow label="Lugares ocupados" value={occupied} color="text-red-400" />
-              <StatRow label="Tasa de ocupación" value={typeof pct === 'number' ? `${pct}%` : pct}
-                color={typeof pct === 'number' ? (pct < 50 ? 'text-emerald-400' : pct < 80 ? 'text-amber-400' : 'text-red-400') : 'text-slate-400'} />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Tab: En vivo
+   Tab: En vivo (cámara + mapa)
 ───────────────────────────────────────────────────────────── */
 function LiveTab() {
   const { state, status } = useParkingSSE()
 
+  const free     = state?.free ?? 0
+  const total    = state?.total ?? 0
+  const occupied = total - free
+  const pct      = total ? Math.round((occupied / total) * 100) : 0
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <SectionHeader icon={<MapPin className="w-5 h-5" />} title="Mapa en vivo" />
+        <SectionHeader icon={<Camera className="w-5 h-5" />} title="En vivo" />
         <div className="flex items-center gap-1.5 text-xs">
           {status === 'connected' && <Wifi className="w-3.5 h-3.5 text-emerald-400" />}
           {status === 'connecting' && <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />}
@@ -849,15 +795,45 @@ function LiveTab() {
         </div>
       </div>
 
-      {!state ? (
-        <div className="card h-64 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KpiMini label="Libres"    value={free}     color="text-emerald-400" />
+        <KpiMini label="Ocupados"  value={occupied} color="text-red-400"     />
+        <KpiMini label="Total"     value={total}    color="text-slate-200"   />
+        <KpiMini label="Ocupación" value={`${pct}%`} color={pct < 50 ? 'text-emerald-400' : pct < 80 ? 'text-amber-400' : 'text-red-400'} />
+      </div>
+
+      <div className="card p-4 grid grid-cols-1 xl:grid-cols-5 gap-5 items-start">
+        {/* Camera */}
+        <div className="xl:col-span-3">
+          <CameraFeed className="w-full" style={{ aspectRatio: '16/9' } as React.CSSProperties} />
         </div>
-      ) : (
-        <div className="card p-4">
-          <ParkingMap spots={state.spots} minHeight={500} className="w-full" />
+
+        {/* Map */}
+        <div className="xl:col-span-2">
+          {!state ? (
+            <div className="h-64 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
+            </div>
+          ) : (
+            <ParkingMap spots={state.spots} className="w-full" />
+          )}
         </div>
+      </div>
+
+      {state && (
+        <p className="text-slate-700 text-xs text-right">
+          Actualizado: {new Date(state.last_updated).toLocaleTimeString('es-AR')}
+        </p>
       )}
+    </div>
+  )
+}
+
+function KpiMini({ label, value, color }: { label: string; value: string | number; color: string }) {
+  return (
+    <div className="card px-4 py-3">
+      <p className={`text-2xl font-bold ${color}`}>{value}</p>
+      <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">{label}</p>
     </div>
   )
 }
@@ -1937,15 +1913,6 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
     <div className="card p-5">
       <p className="text-sm font-semibold text-slate-300 mb-4">{title}</p>
       {children}
-    </div>
-  )
-}
-
-function StatRow({ label, value, color }: { label: string; value: string | number; color: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-slate-500 text-sm">{label}</span>
-      <span className={`font-bold text-sm ${color}`}>{value}</span>
     </div>
   )
 }

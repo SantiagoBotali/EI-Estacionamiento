@@ -132,7 +132,11 @@ export function MapPage() {
           </div>
         ) : (
           <div className="w-full max-w-4xl animate-fade-in">
-            <ParkingMap spots={state.spots} minHeight={420} className="w-full shadow-2xl shadow-black/40" />
+            <ParkingMap
+              spots={state.spots}
+              minHeight={420}
+              className="w-full shadow-2xl shadow-black/40"
+            />
             <p className="text-center text-slate-700 text-xs mt-3 font-medium tracking-wide">
               ACTUALIZADO {new Date(state.last_updated).toLocaleTimeString('es-AR')}
             </p>

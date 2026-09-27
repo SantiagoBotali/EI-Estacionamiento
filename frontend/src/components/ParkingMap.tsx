@@ -5,7 +5,8 @@
  *  - 'original' : #222 background + white grid lines (classic rendering)
  *  - 'custom'   : map_test.png background, grid lines hidden
  *
- * Dynamic elements (car images, spot labels) are always rendered on top.
+ * Car images are always rendered on top. The viewBox is cropped to the
+ * spots' bounding box (+ VIEW_PAD) so the lot fills the available space.
  */
 import { useState, useMemo } from 'react'
 import { Layers } from 'lucide-react'
@@ -20,6 +21,8 @@ const CAR_SZ  = 330
 const LINE_W  = 3
 const LINE_C  = 'rgba(255,255,255,0.96)'
 const SESSION_KEY = 'parkingMapMode'
+const VIEW_PAD = 14   // margin (SVG units) kept around the spots when cropping
+const MAX_H    = 'calc(100dvh - 340px)'  // default max map height: fits below page chrome + toggle row
 
 type MapMode = 'original' | 'custom'
 
@@ -27,6 +30,7 @@ interface ParkingMapProps {
   spots: SpotState[]
   className?: string
   minHeight?: number  // kept for API compatibility
+  maxHeight?: string  // CSS length capping the rendered height (default MAX_H)
 }
 
 // ── Helpers (ported 1-to-1 from map.html) ────────────────────────────────────
@@ -58,7 +62,7 @@ function clusterRows(spaces: SpotState[]): Row[] {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ParkingMap({ spots, className }: ParkingMapProps) {
+export function ParkingMap({ spots, className, maxHeight = MAX_H }: ParkingMapProps) {
   const [mode, setMode] = useState<MapMode>(() => {
     try {
       return (sessionStorage.getItem(SESSION_KEY) as MapMode) ?? 'original'
@@ -113,7 +117,13 @@ export function ParkingMap({ spots, className }: ParkingMapProps) {
       vLine = { x: midX + offsetX, y: minY + offsetY, h: maxY - minY }
     }
 
-    return { offsetX, offsetY, hLines, vLine }
+    // Cropped viewBox: bounding box of the spots plus a small margin
+    const vbX = Math.max(0, minX + offsetX - VIEW_PAD)
+    const vbY = Math.max(0, minY + offsetY - VIEW_PAD)
+    const vbW = Math.min(MASK_W, maxX + offsetX + VIEW_PAD) - vbX
+    const vbH = Math.min(MASK_H, maxY + offsetY + VIEW_PAD) - vbY
+
+    return { offsetX, offsetY, hLines, vLine, vbX, vbY, vbW, vbH }
   }, [spots])
 
   // ── Empty state ─────────────────────────────────────────────────────────────
@@ -133,131 +143,108 @@ export function ParkingMap({ spots, className }: ParkingMapProps) {
     )
   }
 
-  const { offsetX, offsetY, hLines, vLine } = layout
+  const { offsetX, offsetY, hLines, vLine, vbX, vbY, vbW, vbH } = layout
   const isCustom = mode === 'custom'
 
   return (
     <div
-      className={cn('mx-auto relative', className)}
-      style={{ width: '100%', maxWidth: MASK_W, aspectRatio: `${MASK_W} / ${MASK_H}` }}
+      className={cn('mx-auto', className)}
+      style={{ width: '100%', maxWidth: `calc(${maxHeight} * ${(vbW / vbH).toFixed(4)})` }}
     >
-      {/* ── Mode toggle button ── */}
-      <button
-        onClick={toggleMode}
-        title={isCustom ? 'Cambiar a vista clásica' : 'Cambiar a vista con imagen de fondo'}
-        style={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
-          zIndex: 10,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '4px 10px',
-          borderRadius: 8,
-          border: 'none',
-          cursor: 'pointer',
-          fontSize: 11,
-          fontWeight: 700,
-          fontFamily: 'Arial, sans-serif',
-          letterSpacing: '0.04em',
-          background: isCustom ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.12)',
-          color: isCustom ? '#d1fae5' : '#cbd5e1',
-          backdropFilter: 'blur(6px)',
-          boxShadow: '0 1px 6px rgba(0,0,0,0.4)',
-          transition: 'background 0.2s, color 0.2s',
-        }}
-      >
-        <Layers size={13} />
-        {isCustom ? 'IMAGEN' : 'CLÁSICO'}
-      </button>
+      {/* ── Mode toggle button (outside the map so it never covers a car) ── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button
+          onClick={toggleMode}
+          title={isCustom ? 'Cambiar a vista clásica' : 'Cambiar a vista con imagen de fondo'}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 10px',
+            borderRadius: 8,
+            border: '1px solid rgba(148,163,184,0.2)',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 700,
+            fontFamily: 'Arial, sans-serif',
+            letterSpacing: '0.04em',
+            background: isCustom ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.06)',
+            color: isCustom ? '#d1fae5' : '#cbd5e1',
+            transition: 'background 0.2s, color 0.2s',
+          }}
+        >
+          <Layers size={13} />
+          {isCustom ? 'IMAGEN' : 'CLÁSICO'}
+        </button>
+      </div>
 
-      <svg
-        viewBox={`0 0 ${MASK_W} ${MASK_H}`}
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'block',
-          borderRadius: 12,
-          boxShadow: '2px 2px 16px rgba(0,0,0,0.5)',
-        }}
-      >
-        {/* ── Base layer ── */}
-        {isCustom ? (
-          <image
-            href="/Media/map_test.png"
-            x={0} y={0}
-            width={MASK_W} height={MASK_H}
-            preserveAspectRatio="xMidYMid slice"
-          />
-        ) : (
-          <rect width={MASK_W} height={MASK_H} fill="#222" rx={12} />
-        )}
+      <div style={{ width: '100%', aspectRatio: `${vbW} / ${vbH}` }}>
+        <svg
+          viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            borderRadius: 12,
+            boxShadow: '2px 2px 16px rgba(0,0,0,0.5)',
+          }}
+        >
+          {/* ── Base layer ── */}
+          {isCustom ? (
+            <image
+              href="/Media/map_test.png"
+              x={0} y={0}
+              width={MASK_W} height={MASK_H}
+              preserveAspectRatio="xMidYMid slice"
+            />
+          ) : (
+            <rect x={vbX} y={vbY} width={vbW} height={vbH} fill="#222" />
+          )}
 
-        {/* ── Grid lines — original mode only ── */}
-        {!isCustom && hLines.map((l, i) => (
-          <rect
-            key={i}
-            x={l.x} y={l.y - LINE_W / 2}
-            width={l.w} height={LINE_W}
-            rx={2} fill={LINE_C}
-          />
-        ))}
-        {!isCustom && vLine && (
-          <rect
-            x={vLine.x - LINE_W / 2} y={vLine.y}
-            width={LINE_W} height={vLine.h}
-            rx={2} fill={LINE_C}
-          />
-        )}
+          {/* ── Grid lines — original mode only ── */}
+          {!isCustom && hLines.map((l, i) => (
+            <rect
+              key={i}
+              x={l.x} y={l.y - LINE_W / 2}
+              width={l.w} height={LINE_W}
+              rx={2} fill={LINE_C}
+            />
+          ))}
+          {!isCustom && vLine && (
+            <rect
+              x={vLine.x - LINE_W / 2} y={vLine.y}
+              width={LINE_W} height={vLine.h}
+              rx={2} fill={LINE_C}
+            />
+          )}
 
-        {/* ── Dynamic overlays — always rendered ── */}
-        {spots.map(spot => {
-          if (spot.empty) return null
+          {/* ── Dynamic overlays — always rendered ── */}
+          {spots.map(spot => {
+            if (spot.empty) return null
 
-          const sx  = spot.x + offsetX
-          const sy  = spot.y + offsetY
-          const cx  = sx + spot.w / 2
-          const cy  = sy + spot.h / 2
-          const rot = cx < MASK_W / 2 ? -90 : 90
-          const sc  = Math.min(spot.w / TARGET, spot.h / TARGET, 1)
+            const sx  = spot.x + offsetX
+            const sy  = spot.y + offsetY
+            const cx  = sx + spot.w / 2
+            const cy  = sy + spot.h / 2
+            const rot = cx < MASK_W / 2 ? -90 : 90
+            const sc  = Math.min(spot.w / TARGET, spot.h / TARGET, 1)
 
-          const label  = String(spot.id)
-          const labelW = label.length * 8 + 12
-          const labelH = 16
-          const labelX = sx + 4
-          const labelY = sy + spot.h - 4 - labelH
-
-          return (
-            <g key={spot.id}>
-              {/* Car image */}
-              <g transform={`translate(${cx},${cy}) rotate(${rot}) scale(${sc})`}>
-                <image
-                  href="/Media/car.png"
-                  x={-CAR_SZ / 2} y={-CAR_SZ / 2}
-                  width={CAR_SZ} height={CAR_SZ}
-                  preserveAspectRatio="xMidYMid meet"
-                />
+            return (
+              <g key={spot.id}>
+                {/* Car image */}
+                <g transform={`translate(${cx},${cy}) rotate(${rot}) scale(${sc})`}>
+                  <image
+                    href="/Media/car.png"
+                    x={-CAR_SZ / 2} y={-CAR_SZ / 2}
+                    width={CAR_SZ} height={CAR_SZ}
+                    preserveAspectRatio="xMidYMid meet"
+                  />
+                </g>
               </g>
-
-              {/* Spot label */}
-              <rect
-                x={labelX} y={labelY}
-                width={labelW} height={labelH}
-                rx={4} fill="rgba(0,0,0,0.35)"
-              />
-              <text
-                x={labelX + labelW / 2} y={labelY + labelH / 2}
-                textAnchor="middle" dominantBaseline="central"
-                fill="#ffffff" fontSize={12}
-                fontFamily="Arial, sans-serif" fontWeight="700"
-              >
-                {label}
-              </text>
-            </g>
-          )
-        })}
-      </svg>
+            )
+          })}
+        </svg>
+      </div>
     </div>
   )
 }
