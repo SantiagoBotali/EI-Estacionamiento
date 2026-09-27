@@ -122,7 +122,7 @@ export function MapPage() {
       </div>
 
       {/* ── Main content ── */}
-      <main className="flex-1 flex items-center justify-center p-4 sm:p-8">
+      <main className="flex-1 flex items-start justify-center px-4 sm:px-8 pt-3 pb-4">
         {!state ? (
           <div className="text-center text-slate-600">
             <div className="w-16 h-16 rounded-2xl bg-slate-800/50 flex items-center justify-center mx-auto mb-4">
@@ -135,11 +135,9 @@ export function MapPage() {
             <ParkingMap
               spots={state.spots}
               minHeight={420}
-              className="w-full shadow-2xl shadow-black/40"
+              maxHeight="calc(100dvh - 240px)"
+              className="w-full"
             />
-            <p className="text-center text-slate-700 text-xs mt-3 font-medium tracking-wide">
-              ACTUALIZADO {new Date(state.last_updated).toLocaleTimeString('es-AR')}
-            </p>
           </div>
         )}
       </main>

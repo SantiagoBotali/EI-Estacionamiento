@@ -296,74 +296,72 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
             Configuración de tarifas
           </div>
 
-          {/* Tarifa / hora */}
-          <div className="space-y-2">
-            <p className="text-slate-500 text-xs uppercase tracking-wider">Tarifa / hora</p>
-            <p className="text-white font-bold text-lg">{formatCurrency(tariff.rate_per_hour)}</p>
-            <form onSubmit={saveRate} className="flex gap-2">
-              <div className="flex flex-col gap-1 max-w-xs w-full">
-                <input
-                  type="text" inputMode="decimal" value={newRate}
-                  onChange={(e) => { setNewRate(e.target.value); setRateError('') }}
-                  placeholder="Nueva tarifa/hora (ARS)"
-                  className={`input w-full ${rateError ? 'border-red-500/60' : ''}`}
-                  disabled={savingField !== null}
-                />
-                {rateError && <p className="text-red-400 text-xs">{rateError}</p>}
-              </div>
-              <button type="submit" disabled={savingField !== null} className="btn-primary shrink-0 self-start">
-                {savingField === 'rate' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
-                Guardar
-              </button>
-            </form>
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+            {/* Tarifa / hora */}
+            <div className="space-y-2 py-4 md:py-0 md:px-5 first:pt-0 md:first:pl-0 last:pb-0 md:last:pr-0">
+              <p className="text-slate-500 text-xs uppercase tracking-wider">Tarifa / hora</p>
+              <p className="text-white font-bold text-lg">{formatCurrency(tariff.rate_per_hour)}</p>
+              <form onSubmit={saveRate} className="flex gap-2">
+                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                  <input
+                    type="text" inputMode="decimal" value={newRate}
+                    onChange={(e) => { setNewRate(e.target.value); setRateError('') }}
+                    placeholder="Nueva tarifa/hora (ARS)"
+                    className={`input w-full ${rateError ? 'border-red-500/60' : ''}`}
+                    disabled={savingField !== null}
+                  />
+                  {rateError && <p className="text-red-400 text-xs">{rateError}</p>}
+                </div>
+                <button type="submit" disabled={savingField !== null} className="btn-primary shrink-0 self-start">
+                  {savingField === 'rate' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
+                  Guardar
+                </button>
+              </form>
+            </div>
 
-          <div className="border-t border-slate-800" />
+            {/* Mínimo */}
+            <div className="space-y-2 py-4 md:py-0 md:px-5 first:pt-0 md:first:pl-0 last:pb-0 md:last:pr-0">
+              <p className="text-slate-500 text-xs uppercase tracking-wider">Cargo mínimo</p>
+              <p className="text-white font-bold text-lg">{formatCurrency(tariff.minimum_charge)}</p>
+              <form onSubmit={saveMin} className="flex gap-2">
+                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                  <input
+                    type="text" inputMode="decimal" value={newMin}
+                    onChange={(e) => { setNewMin(e.target.value); setMinError('') }}
+                    placeholder="Nuevo mínimo (ARS)"
+                    className={`input w-full ${minError ? 'border-red-500/60' : ''}`}
+                    disabled={savingField !== null}
+                  />
+                  {minError && <p className="text-red-400 text-xs">{minError}</p>}
+                </div>
+                <button type="submit" disabled={savingField !== null} className="btn-primary shrink-0 self-start">
+                  {savingField === 'min' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
+                  Guardar
+                </button>
+              </form>
+            </div>
 
-          {/* Mínimo */}
-          <div className="space-y-2">
-            <p className="text-slate-500 text-xs uppercase tracking-wider">Cargo mínimo</p>
-            <p className="text-white font-bold text-lg">{formatCurrency(tariff.minimum_charge)}</p>
-            <form onSubmit={saveMin} className="flex gap-2">
-              <div className="flex flex-col gap-1 max-w-xs w-full">
-                <input
-                  type="text" inputMode="decimal" value={newMin}
-                  onChange={(e) => { setNewMin(e.target.value); setMinError('') }}
-                  placeholder="Nuevo mínimo (ARS)"
-                  className={`input w-full ${minError ? 'border-red-500/60' : ''}`}
-                  disabled={savingField !== null}
-                />
-                {minError && <p className="text-red-400 text-xs">{minError}</p>}
-              </div>
-              <button type="submit" disabled={savingField !== null} className="btn-primary shrink-0 self-start">
-                {savingField === 'min' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
-                Guardar
-              </button>
-            </form>
-          </div>
-
-          <div className="border-t border-slate-800" />
-
-          {/* Período de gracia */}
-          <div className="space-y-2">
-            <p className="text-slate-500 text-xs uppercase tracking-wider">Período de gracia</p>
-            <p className="text-white font-bold text-lg">{tariff.grace_period_minutes} min</p>
-            <form onSubmit={saveGrace} className="flex gap-2">
-              <div className="flex flex-col gap-1 max-w-xs w-full">
-                <input
-                  type="text" inputMode="numeric" value={newGrace}
-                  onChange={(e) => { setNewGrace(e.target.value); setGraceError('') }}
-                  placeholder="Nuevo período de gracia (min)"
-                  className={`input w-full ${graceError ? 'border-red-500/60' : ''}`}
-                  disabled={savingField !== null}
-                />
-                {graceError && <p className="text-red-400 text-xs">{graceError}</p>}
-              </div>
-              <button type="submit" disabled={savingField !== null} className="btn-primary shrink-0 self-start">
-                {savingField === 'grace' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
-                Guardar
-              </button>
-            </form>
+            {/* Período de gracia */}
+            <div className="space-y-2 py-4 md:py-0 md:px-5 first:pt-0 md:first:pl-0 last:pb-0 md:last:pr-0">
+              <p className="text-slate-500 text-xs uppercase tracking-wider">Período de gracia</p>
+              <p className="text-white font-bold text-lg">{tariff.grace_period_minutes} min</p>
+              <form onSubmit={saveGrace} className="flex gap-2">
+                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                  <input
+                    type="text" inputMode="numeric" value={newGrace}
+                    onChange={(e) => { setNewGrace(e.target.value); setGraceError('') }}
+                    placeholder="Nuevo período de gracia (min)"
+                    className={`input w-full ${graceError ? 'border-red-500/60' : ''}`}
+                    disabled={savingField !== null}
+                  />
+                  {graceError && <p className="text-red-400 text-xs">{graceError}</p>}
+                </div>
+                <button type="submit" disabled={savingField !== null} className="btn-primary shrink-0 self-start">
+                  {savingField === 'grace' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
+                  Guardar
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}

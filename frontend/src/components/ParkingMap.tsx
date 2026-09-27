@@ -5,10 +5,10 @@
  *  - 'original' : #222 background + white grid lines (classic rendering)
  *  - 'custom'   : map_test.png background, grid lines hidden
  *
- * Car images are always rendered on top. The viewBox is cropped to the
+ * Car images are always rendered on top; free spots get a soft pulsing green glow. The viewBox is cropped to the
  * spots' bounding box (+ VIEW_PAD) so the lot fills the available space.
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useId } from 'react'
 import { Layers } from 'lucide-react'
 import type { SpotState } from '../api/parking'
 import { cn } from '../lib/utils'
@@ -23,6 +23,7 @@ const LINE_C  = 'rgba(255,255,255,0.96)'
 const SESSION_KEY = 'parkingMapMode'
 const VIEW_PAD = 14   // margin (SVG units) kept around the spots when cropping
 const MAX_H    = 'calc(100dvh - 340px)'  // default max map height: fits below page chrome + toggle row
+const MIN_H    = 420  // floor (px) so the map stays usable in small / resized windows
 
 type MapMode = 'original' | 'custom'
 
@@ -63,6 +64,7 @@ function clusterRows(spaces: SpotState[]): Row[] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function ParkingMap({ spots, className, maxHeight = MAX_H }: ParkingMapProps) {
+  const glowId = `free-glow-${useId().replace(/:/g, '')}`
   const [mode, setMode] = useState<MapMode>(() => {
     try {
       return (sessionStorage.getItem(SESSION_KEY) as MapMode) ?? 'original'
@@ -149,7 +151,7 @@ export function ParkingMap({ spots, className, maxHeight = MAX_H }: ParkingMapPr
   return (
     <div
       className={cn('mx-auto', className)}
-      style={{ width: '100%', maxWidth: `calc(${maxHeight} * ${(vbW / vbH).toFixed(4)})` }}
+      style={{ width: '100%', maxWidth: `calc(max(${MIN_H}px, ${maxHeight}) * ${(vbW / vbH).toFixed(4)})` }}
     >
       {/* ── Mode toggle button (outside the map so it never covers a car) ── */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
@@ -189,6 +191,14 @@ export function ParkingMap({ spots, className, maxHeight = MAX_H }: ParkingMapPr
             boxShadow: '2px 2px 16px rgba(0,0,0,0.5)',
           }}
         >
+          <defs>
+            <radialGradient id={glowId}>
+              <stop offset="0%"   stopColor="#4ade80" stopOpacity={1} />
+              <stop offset="45%"  stopColor="#22c55e" stopOpacity={0.75} />
+              <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
+            </radialGradient>
+          </defs>
+
           {/* ── Base layer ── */}
           {isCustom ? (
             <image
@@ -220,7 +230,18 @@ export function ParkingMap({ spots, className, maxHeight = MAX_H }: ParkingMapPr
 
           {/* ── Dynamic overlays — always rendered ── */}
           {spots.map(spot => {
-            if (spot.empty) return null
+            if (spot.empty) {
+              return (
+                <ellipse
+                  key={spot.id}
+                  cx={spot.x + offsetX + spot.w / 2} cy={spot.y + offsetY + spot.h / 2}
+                  rx={spot.w * 0.42} ry={spot.h * 0.42}
+                  fill={`url(#${glowId})`}
+                >
+                  <animate attributeName="opacity" values="0.3;1;0.3" dur="2.4s" repeatCount="indefinite" />
+                </ellipse>
+              )
+            }
 
             const sx  = spot.x + offsetX
             const sy  = spot.y + offsetY
