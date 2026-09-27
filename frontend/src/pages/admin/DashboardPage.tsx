@@ -22,7 +22,7 @@ import {
   type ActiveStay, type StayLookupResponse, type TariffInfo, type CashClosing,
 } from '../../api/employee'
 import { CameraFeed } from '../../components/CameraFeed'
-import { ParkingMap } from '../../components/ParkingMap'
+import { ParkingMap, parkingMapAspect, MAP_TOOLBAR_H } from '../../components/ParkingMap'
 import { FinancialReportPrint } from '../../components/FinancialReportPrint'
 import { Modal } from '../../components/Modal'
 import { useParkingSSE } from '../../hooks/useParkingSSE'
@@ -405,8 +405,12 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 function CashClosingsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [history, setHistory]       = useState<CashClosing[]>([])
   const [loading, setLoading]       = useState(true)
-  const [filterMonth, setFilterMonth] = useState('') // YYYY-MM
-  const [filterDate, setFilterDate]   = useState('') // YYYY-MM-DD
+  const [filterMode, setFilterMode]   = useState<'period' | 'range'>('period')
+  const [filterYear, setFilterYear]   = useState(0)
+  const [filterMonth, setFilterMonth] = useState(0) // 1-12
+  const [filterDay, setFilterDay]     = useState(0)
+  const [rangeFrom, setRangeFrom]     = useState('') // YYYY-MM-DD
+  const [rangeTo, setRangeTo]         = useState('') // YYYY-MM-DD
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const load = useCallback(async () => {
@@ -423,20 +427,41 @@ function CashClosingsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   useEffect(() => { load() }, [load])
 
+  // Opciones de cada selector derivadas de los cierres existentes, filtradas por el selector anterior
+  const dates = history.map((c) => new Date(c.closed_at))
+  const uniqSorted = (xs: number[]) => [...new Set(xs)].sort((a, b) => a - b)
+  const yearOptions  = uniqSorted(dates.map((d) => d.getFullYear())).reverse()
+  const monthOptions = filterYear
+    ? uniqSorted(dates.filter((d) => d.getFullYear() === filterYear).map((d) => d.getMonth() + 1))
+    : []
+  const dayOptions = filterYear && filterMonth
+    ? uniqSorted(dates
+        .filter((d) => d.getFullYear() === filterYear && d.getMonth() + 1 === filterMonth)
+        .map((d) => d.getDate()))
+    : []
+
+  const hasFilter = filterMode === 'period' ? filterYear > 0 : Boolean(rangeFrom || rangeTo)
+  const clearFilters = () => {
+    setFilterYear(0); setFilterMonth(0); setFilterDay(0)
+    setRangeFrom(''); setRangeTo('')
+  }
+
   const filtered = history.filter((c) => {
     const d = new Date(c.closed_at)
-    if (filterDate) {
-      const fd = new Date(filterDate + 'T00:00:00')
-      return d.getFullYear() === fd.getFullYear() &&
-             d.getMonth()    === fd.getMonth()    &&
-             d.getDate()     === fd.getDate()
+    if (filterMode === 'range') {
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      if (rangeFrom && key < rangeFrom) return false
+      if (rangeTo && key > rangeTo) return false
+      return true
     }
-    if (filterMonth) {
-      const [y, m] = filterMonth.split('-').map(Number)
-      return d.getFullYear() === y && d.getMonth() + 1 === m
-    }
+    if (filterYear  && d.getFullYear()  !== filterYear)  return false
+    if (filterMonth && d.getMonth() + 1 !== filterMonth) return false
+    if (filterDay   && d.getDate()      !== filterDay)   return false
     return true
   })
+
+  const selectCls = 'bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
+  const labelCls  = 'text-xs font-semibold text-slate-400 uppercase tracking-widest shrink-0'
 
   const totals = filtered.reduce(
     (acc, c) => ({
@@ -461,29 +486,85 @@ function CashClosingsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
       {/* ── Filtros ── */}
       <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest shrink-0">Mes</label>
-          <input
-            type="month"
-            value={filterMonth}
-            onChange={(e) => { setFilterMonth(e.target.value); setFilterDate('') }}
-            className="input py-1.5 px-3 text-sm"
-          />
+        <div className="flex gap-1 bg-slate-900/60 border border-slate-700/60 rounded-lg p-1">
+          {([['period', 'Por período'], ['range', 'Desde – hasta']] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              onClick={() => { setFilterMode(mode); clearFilters() }}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
+                filterMode === mode ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest shrink-0">Fecha</label>
-          <input
-            type="date"
-            value={filterDate}
-            onChange={(e) => { setFilterDate(e.target.value); setFilterMonth('') }}
-            className="input py-1.5 px-3 text-sm"
-          />
-        </div>
-        {(filterMonth || filterDate) && (
-          <button
-            onClick={() => { setFilterMonth(''); setFilterDate('') }}
-            className="btn-ghost text-xs flex items-center gap-1.5"
-          >
+
+        {filterMode === 'period' ? (
+          <>
+            <div className="flex items-center gap-2">
+              <label className={labelCls}>Año</label>
+              <select
+                value={filterYear || ''}
+                onChange={(e) => { setFilterYear(Number(e.target.value)); setFilterMonth(0); setFilterDay(0) }}
+                className={selectCls}
+              >
+                <option value="">Todos</option>
+                {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className={labelCls}>Mes</label>
+              <select
+                value={filterMonth || ''}
+                disabled={!filterYear}
+                onChange={(e) => { setFilterMonth(Number(e.target.value)); setFilterDay(0) }}
+                className={selectCls}
+              >
+                <option value="">Todos</option>
+                {monthOptions.map((m) => <option key={m} value={m}>{MONTH_NAMES_FULL[m - 1]}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className={labelCls}>Día</label>
+              <select
+                value={filterDay || ''}
+                disabled={!filterMonth}
+                onChange={(e) => setFilterDay(Number(e.target.value))}
+                className={selectCls}
+              >
+                <option value="">Todos</option>
+                {dayOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <label className={labelCls}>Desde</label>
+              <input
+                type="date"
+                value={rangeFrom}
+                max={rangeTo || undefined}
+                onChange={(e) => setRangeFrom(e.target.value)}
+                className="input py-1.5 px-3 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className={labelCls}>Hasta</label>
+              <input
+                type="date"
+                value={rangeTo}
+                min={rangeFrom || undefined}
+                onChange={(e) => setRangeTo(e.target.value)}
+                className="input py-1.5 px-3 text-sm"
+              />
+            </div>
+          </>
+        )}
+
+        {hasFilter && (
+          <button onClick={clearFilters} className="btn-ghost text-xs flex items-center gap-1.5">
             <X className="w-3 h-3" /> Limpiar filtro
           </button>
         )}
@@ -800,20 +881,29 @@ function LiveTab() {
         <KpiMini label="Ocupación" value={`${pct}%`} color={pct < 50 ? 'text-emerald-400' : pct < 80 ? 'text-amber-400' : 'text-red-400'} />
       </div>
 
-      <div className="card p-4 grid grid-cols-1 xl:grid-cols-5 gap-5 items-start">
+      {/* Column widths proportional to each aspect ratio → camera and map share the same height */}
+      <div
+        className="card p-4 grid grid-cols-1 xl:[grid-template-columns:var(--live-cols)] gap-5 items-start"
+        style={{
+          '--live-cols': `minmax(0, ${(16 / 9).toFixed(4)}fr) minmax(0, ${parkingMapAspect(state?.spots ?? []).toFixed(4)}fr)`,
+        } as React.CSSProperties}
+      >
         {/* Camera */}
-        <div className="xl:col-span-3">
+        <div>
+          <div className="flex items-center mb-2" style={{ height: MAP_TOOLBAR_H }}>
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">Cámara</span>
+          </div>
           <CameraFeed className="w-full" style={{ aspectRatio: '16/9' } as React.CSSProperties} />
         </div>
 
         {/* Map */}
-        <div className="xl:col-span-2">
+        <div>
           {!state ? (
             <div className="h-64 flex items-center justify-center">
               <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
             </div>
           ) : (
-            <ParkingMap spots={state.spots} className="w-full" />
+            <ParkingMap spots={state.spots} maxHeight={null} title="Mapa" className="w-full" />
           )}
         </div>
       </div>
