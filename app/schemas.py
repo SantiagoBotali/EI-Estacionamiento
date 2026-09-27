@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ─── Auth ───────────────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ class TariffSettings(BaseModel):
 class TariffUpdate(BaseModel):
     rate_per_hour: Optional[float] = None
     minimum_charge: Optional[float] = None
-    grace_period_minutes: Optional[int] = None
+    grace_period_minutes: Optional[int] = Field(None, ge=0, le=120)
 
 
 # ─── Admin KPIs ──────────────────────────────────────────────────────────────

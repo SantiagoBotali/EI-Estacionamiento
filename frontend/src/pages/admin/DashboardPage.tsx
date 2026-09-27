@@ -243,6 +243,7 @@ function OperationsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     e.preventDefault()
     const v = parseInt(newGrace.trim(), 10)
     if (!newGrace.trim() || isNaN(v) || v < 0) { setGraceError('Ingresá un valor válido en minutos'); return }
+    if (v > 120) { setGraceError('El período de gracia no puede superar 120 minutos'); return }
     setGraceError('')
     doSaveField({ grace_period_minutes: v }, 'grace')
   }
