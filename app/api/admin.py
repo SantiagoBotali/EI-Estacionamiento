@@ -8,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.database import get_db, get_setting
+from app.database import ARS_OFFSET, get_db, get_setting
 from app.models import Payment, PaymentStatus, Stay, StayStatus, SystemSetting, User
 from app.schemas import FinanceKPI, OperationsKPI, RollupKPI, TariffSettings, TariffUpdate
 from app.security import require_admin
@@ -38,8 +38,9 @@ async def operations_kpis(
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Stays are stored as naive Argentina wall-clock time → "today" is the ARS day
+    now_ars = datetime.now(timezone.utc).replace(tzinfo=None) - ARS_OFFSET
+    today_start = now_ars.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=6)
 
     # Autos hoy
@@ -123,9 +124,10 @@ async def finance_kpis(
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_start = today_start.replace(day=1)
+    # Payments are stored in UTC → day/month boundaries of the ARS calendar, expressed in UTC
+    now_ars = datetime.now(timezone.utc) - ARS_OFFSET
+    today_start = now_ars.replace(hour=0, minute=0, second=0, microsecond=0) + ARS_OFFSET
+    month_start = now_ars.replace(day=1, hour=0, minute=0, second=0, microsecond=0) + ARS_OFFSET
 
     approved_payments = (
         db.execute(

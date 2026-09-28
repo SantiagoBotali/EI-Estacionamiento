@@ -427,6 +427,16 @@ function CashClosingsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   useEffect(() => { load() }, [load])
 
+  // Al cargar por primera vez, preseleccionar el mes del cierre más reciente
+  const defaultApplied = useRef(false)
+  useEffect(() => {
+    if (defaultApplied.current || history.length === 0) return
+    defaultApplied.current = true
+    const latest = new Date(history[0].closed_at) // la API los devuelve del más reciente al más antiguo
+    setFilterYear(latest.getFullYear())
+    setFilterMonth(latest.getMonth() + 1)
+  }, [history])
+
   // Opciones de cada selector derivadas de los cierres existentes, filtradas por el selector anterior
   const dates = history.map((c) => new Date(c.closed_at))
   const uniqSorted = (xs: number[]) => [...new Set(xs)].sort((a, b) => a - b)
@@ -446,7 +456,8 @@ function CashClosingsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
     setRangeFrom(''); setRangeTo('')
   }
 
-  const filtered = history.filter((c) => {
+  // Sin filtro no se lista nada: el historial completo es demasiado largo
+  const filtered = !hasFilter ? [] : history.filter((c) => {
     const d = new Date(c.closed_at)
     if (filterMode === 'range') {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -577,7 +588,9 @@ function CashClosingsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           <Banknote className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>{history.length === 0
             ? 'No hay cierres registrados aún.'
-            : 'No hay cierres para el período seleccionado.'}</p>
+            : !hasFilter
+              ? 'Seleccioná un año, mes o día (o un rango de fechas) para ver los cierres.'
+              : 'No hay cierres para el período seleccionado.'}</p>
         </div>
       ) : (
         <>
@@ -607,10 +620,10 @@ function CashClosingsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
           {/* ── Tabla ── */}
           <div className="card overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-auto max-h-[60vh]">
               <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-700/60 bg-slate-900/40">
+                <thead className="sticky top-0 z-10 bg-slate-900">
+                  <tr className="border-b border-slate-700/60">
                     <th className="th">Fecha y hora</th>
                     <th className="th">Empleado</th>
                     <th className="th">Estadías</th>

@@ -113,17 +113,62 @@ def seed_db():
                 db.add(SystemSetting(key=key, value=value))
         db.commit()
 
-        # ── Synthetic historical stays ─────────────────────────────────────────
+        # ── Synthetic data ─────────────────────────────────────────────────────
         existing_stay = db.execute(select(Stay)).scalars().first()
         if not existing_stay:
             _seed_synthetic_stays(db)
+        else:
+            _top_up_synthetic_data(db)
     finally:
         db.close()
 
 
+# Business timezone offset. Stays are stored as naive Argentina wall-clock time
+# (see stay_manager / tariff), while payments and cash closings are stored in UTC.
+ARS_OFFSET = timedelta(hours=3)
+
+
+def _now_ars() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None) - ARS_OFFSET
+
+
 def _seed_synthetic_stays(db: Session):
     """
-    Generate closed stays from January 2024 to today.
+    Generate closed stays from January 2024 up to now (today included, at
+    random times before the current hour), one daily cash closing per past
+    day and 5 active stays.
+    """
+    now_ars = _now_ars()
+    _seed_closed_stays(db, datetime(2024, 1, 1), now_ars)
+    db.flush()
+    _seed_cash_closings(db)
+    _seed_active_stays(db, now_ars)
+    db.commit()
+
+
+def _top_up_synthetic_data(db: Session):
+    """
+    On startup with an existing DB: fill the days since the last stay up to now
+    (so "today" always has data) and the missing daily cash closings.
+    """
+    from sqlalchemy import func
+    from app.models import Stay
+
+    last_entry = db.execute(select(func.max(Stay.entry_at))).scalar()
+    now_ars = _now_ars()
+    today = now_ars.replace(hour=0, minute=0, second=0, microsecond=0)
+    if last_entry is not None:
+        last_day = last_entry.replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
+        if last_day < today:
+            _seed_closed_stays(db, last_day + timedelta(days=1), now_ars)
+            db.flush()
+    _seed_cash_closings(db)
+    db.commit()
+
+
+def _seed_closed_stays(db: Session, first_day: datetime, now_ars: datetime):
+    """
+    Generate closed + paid stays for every day from first_day to now_ars (naive ARS).
 
     Per-day targets:
     - Weekdays (Mon–Fri): 30–60 stays/day
@@ -131,13 +176,10 @@ def _seed_synthetic_stays(db: Session):
     - Payment split varies each month: randomly between 40-90% cash, rest MercadoPago
     - Duration: 15–300 min, weighted toward 30–90 min
     - Entry hour: weighted toward morning (9-12) and afternoon (16-19)
-
-    Also creates 5 active stays for the current day.
+    Stays that would still be in progress at now_ars are skipped.
     """
     from app.models import Stay, Ticket, Payment, StayStatus, PaymentMethod, PaymentStatus
     from app.services.tariff import calculate_price
-
-    now_utc = datetime.now(timezone.utc)
 
     # ── Hourly weight for entry time (peaks at 9-11h and 16-18h) ─────────────
     hour_weights = [
@@ -162,27 +204,18 @@ def _seed_synthetic_stays(db: Session):
     minimum = 300.0
     grace = 15
 
-    # ── Iterate day by day from 2024-01-01 to yesterday ─────────────────────
-    seed_start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    today_start_for_seed = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-
     # Cash ratio varies monthly (recalculated at the start of each new month)
     current_seed_month = None
     cash_ratio = 0.65
 
-    day_cursor = seed_start
-    while day_cursor < today_start_for_seed:
-        # Update cash ratio at the start of each new month
+    day_cursor = first_day
+    while day_cursor <= now_ars:
         if day_cursor.month != current_seed_month:
             current_seed_month = day_cursor.month
             cash_ratio = random.uniform(0.40, 0.90)
 
-        # Weekday (Mon–Fri): 30–60 stays/day; Weekend (Sat–Sun): 15–35 stays/day
         weekday = day_cursor.weekday()  # 0=Monday, 6=Sunday
-        if weekday < 5:
-            count = random.randint(30, 60)
-        else:
-            count = random.randint(15, 35)
+        count = random.randint(30, 60) if weekday < 5 else random.randint(15, 35)
 
         for _ in range(count):
             hour   = random.choices(range(24), weights=hour_weights)[0]
@@ -190,15 +223,10 @@ def _seed_synthetic_stays(db: Session):
             second = random.randint(0, 59)
             entry_at = day_cursor.replace(hour=hour, minute=minute, second=second)
 
-            # Clamp: never in the future
-            if entry_at >= now_utc:
-                continue
-
             duration = rand_duration()
             exit_at  = entry_at + timedelta(minutes=duration)
-            if exit_at >= now_utc:
-                exit_at = now_utc - timedelta(minutes=1)
-            if exit_at <= entry_at:
+            # Never in the future; stays still in progress are not seeded as closed
+            if exit_at >= now_ars:
                 continue
 
             amount = calculate_price(
@@ -219,13 +247,11 @@ def _seed_synthetic_stays(db: Session):
             db.add(stay)
             db.flush()
 
-            ticket_code   = _gen_ticket_code(db, entry_at)
-            barcode_value = str(uuid.uuid4())
             db.add(Ticket(
                 id=str(uuid.uuid4()),
                 stay_id=stay.id,
-                ticket_code=ticket_code,
-                barcode_value=barcode_value,
+                ticket_code=_gen_ticket_code(db, entry_at),
+                barcode_value=str(uuid.uuid4()),
             ))
             db.add(Payment(
                 id=str(uuid.uuid4()),
@@ -233,18 +259,19 @@ def _seed_synthetic_stays(db: Session):
                 method=method,
                 amount=amount,
                 status=PaymentStatus.APPROVED,
-                processed_at=exit_at,
+                processed_at=exit_at + ARS_OFFSET,  # payments are stored in UTC
             ))
 
-        # Advance to next day
         day_cursor += timedelta(days=1)
 
-    # ── 5 active stays today ──────────────────────────────────────────────────
-    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-    for _ in range(5):
-        minutes_ago = random.randint(20, 180)
-        entry_at    = max(now_utc - timedelta(minutes=minutes_ago), today_start)
 
+def _seed_active_stays(db: Session, now_ars: datetime, count: int = 5):
+    """Create `count` ACTIVE stays that entered earlier today (naive ARS)."""
+    from app.models import Stay, Ticket, StayStatus
+
+    today_start = now_ars.replace(hour=0, minute=0, second=0, microsecond=0)
+    for _ in range(count):
+        entry_at = max(now_ars - timedelta(minutes=random.randint(20, 180)), today_start)
         stay = Stay(
             id=str(uuid.uuid4()),
             entry_at=entry_at,
@@ -252,18 +279,114 @@ def _seed_synthetic_stays(db: Session):
         )
         db.add(stay)
         db.flush()
-
-        ticket_code   = _gen_ticket_code(db, entry_at)
-        barcode_value = str(uuid.uuid4())
         db.add(Ticket(
             id=str(uuid.uuid4()),
             stay_id=stay.id,
-            ticket_code=ticket_code,
-            barcode_value=barcode_value,
+            ticket_code=_gen_ticket_code(db, entry_at),
+            barcode_value=str(uuid.uuid4()),
         ))
 
-    db.commit()
 
+def _seed_cash_closings(db: Session):
+    """
+    Create the missing daily cash closings, one per business day at ~21:30 ARS
+    (00:30 UTC), from the last existing closing (or the first payment) up to now.
+
+    Each closing's totals come from the approved payments in
+    [previous closing, this closing), exactly like cash_closing_service does, so
+    the history is consistent and the currently open period only covers today.
+    """
+    from app.models import CashClosing, Payment, PaymentMethod, PaymentStatus
+    from app.services.cash_closing_service import VALID_EMPLOYEES
+
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    last = db.execute(select(CashClosing).order_by(CashClosing.closed_at.desc())).scalars().first()
+    if last:
+        period_from = last.closed_at.replace(tzinfo=None)
+        day = (period_from - ARS_OFFSET).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    else:
+        first_payment = db.execute(
+            select(Payment.processed_at).where(Payment.processed_at.is_not(None))
+            .order_by(Payment.processed_at.asc())
+        ).scalars().first()
+        if first_payment is None:
+            return
+        day = (first_payment.replace(tzinfo=None) - ARS_OFFSET).replace(hour=0, minute=0, second=0, microsecond=0)
+        period_from = day + ARS_OFFSET
+
+    payments = db.execute(
+        select(Payment.processed_at, Payment.method, Payment.amount)
+        .where(
+            Payment.status == PaymentStatus.APPROVED,
+            Payment.processed_at >= period_from,
+            Payment.processed_at < now_utc,
+        )
+        .order_by(Payment.processed_at.asc())
+    ).all()
+
+    shortage_notes = [
+        "Faltante en caja, se informa al encargado.",
+        "Error en vuelto a un cliente.",
+        "Diferencia sin identificar, se revisa mañana.",
+    ]
+    surplus_notes = [
+        "Sobrante en caja, cliente no esperó el vuelto.",
+        "Sobrante sin identificar.",
+    ]
+
+    closings: list[CashClosing] = []
+    idx = 0
+    while True:
+        # Day D (ARS) closes at D 21:30–21:55 ARS = D+1 00:30–00:55 UTC
+        closed_at = day + timedelta(days=1, minutes=random.randint(30, 55), seconds=random.randint(0, 59))
+        if closed_at >= now_utc:
+            break
+
+        cash = digital = 0.0
+        count = 0
+        while idx < len(payments) and payments[idx].processed_at.replace(tzinfo=None) < closed_at:
+            p = payments[idx]
+            if p.method == PaymentMethod.CASH:
+                cash += p.amount
+            else:
+                digital += p.amount
+            count += 1
+            idx += 1
+        cash = round(cash, 2)
+        digital = round(digital, 2)
+
+        # Most closings match; some have a small shortage/surplus
+        notes = None
+        difference = 0.0
+        roll = random.random()
+        if roll < 0.15:
+            difference = -float(random.choice([100, 200, 300, 500, 1000]))
+            notes = random.choice(shortage_notes)
+        elif roll < 0.22:
+            difference = float(random.choice([100, 200, 300, 500]))
+            notes = random.choice(surplus_notes)
+        actual_cash = max(0.0, round(cash + difference, 2))
+
+        closings.append(CashClosing(
+            id=str(uuid.uuid4()),
+            employee_name=random.choice(VALID_EMPLOYEES),
+            period_from=period_from,
+            period_to=closed_at,
+            cash_amount=cash,
+            digital_amount=digital,
+            total_amount=round(cash + digital, 2),
+            stay_count=count,
+            actual_cash=actual_cash,
+            difference=round(actual_cash - cash, 2),
+            notes=notes,
+            closed_at=closed_at,
+        ))
+
+        period_from = closed_at
+        day += timedelta(days=1)
+
+    db.add_all(closings)
 
 
 def _gen_ticket_code(db: Session, dt: datetime) -> str:

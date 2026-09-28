@@ -112,7 +112,8 @@ run.py               — entry point (WindowsSelectorEventLoopPolicy para Window
 
 ## KPIs Admin — períodos
 
-- Autos hoy / duración promedio / hora pico / gráfico por hora → **día actual (UTC)**
+- Autos hoy / duración promedio / hora pico / gráfico por hora → **día actual (hora Argentina, UTC-3)**. `Stay.entry_at/exit_at` se guardan como hora ARS naive; `Payment.processed_at` y `CashClosing.closed_at` en UTC (`ARS_OFFSET` en `app/database.py`)
+- Al arrancar con una DB existente, `seed_db` rellena estadías sintéticas desde el último día con datos hasta ahora y los cierres de caja diarios faltantes (~21:30 ARS)
 - Gráfico autos/día → **últimos 7 días**
 - Tasa de ocupación → **tiempo real (visión)**
 - `GET /api/admin/kpis/rollup?granularity=daily|monthly|yearly`
