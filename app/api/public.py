@@ -117,6 +117,22 @@ async def exit_pay_cash_request(body: ExitPayRequest, db: Session = Depends(get_
     }
 
 
+@router.get("/api/public/exit/status/{stay_id}")
+async def exit_status(stay_id: str, db: Session = Depends(get_db)):
+    """Kiosk polls this while waiting for an employee to register a cash payment."""
+    from app.models import Stay
+    stay = db.get(Stay, stay_id)
+    if stay is None:
+        raise HTTPException(status_code=404, detail="Estadía no encontrada")
+    return {
+        "stay_id": stay.id,
+        "status": stay.status,
+        "amount_paid": float(stay.amount_paid or 0),
+        "payment_method": stay.payment_method,
+        "exit_at": stay.exit_at.isoformat() if stay.exit_at else None,
+    }
+
+
 @router.post("/api/public/exit/pay/simulate")
 async def exit_pay_simulate(body: ExitPayRequest, db: Session = Depends(get_db)):
     from app.services.payment_service import simulate_payment

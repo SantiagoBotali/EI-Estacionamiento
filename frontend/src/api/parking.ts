@@ -70,6 +70,18 @@ export function requestCashPayment(stay_id: string): Promise<{stay_id: string, s
   })
 }
 
+export interface ExitStatusResponse {
+  stay_id: string
+  status: string
+  amount_paid: number
+  payment_method: string | null
+  exit_at: string | null
+}
+
+export function getExitStatus(stay_id: string): Promise<ExitStatusResponse> {
+  return apiFetch<ExitStatusResponse>(`/api/public/exit/status/${stay_id}`, { noAuth: true })
+}
+
 export function exitPaySimulate(stay_id: string): Promise<ExitPayResponse> {
   return apiFetch<ExitPayResponse>('/api/public/exit/pay/simulate', {
     method: 'POST',

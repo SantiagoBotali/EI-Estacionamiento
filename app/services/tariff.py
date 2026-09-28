@@ -17,7 +17,8 @@ def calculate_price(
     Calculate parking fee based on duration.
 
     Grace period: free up to GRACE_PERIOD_MINUTES.
-    After grace period: minimum charge applies, then rate per started hour.
+    After grace period: every started hour is charged in full (rate × ceil(hours)),
+    never less than the minimum charge.
 
     Returns:
         Amount in ARS (float).
@@ -49,12 +50,10 @@ def calculate_price(
     if duration_minutes <= grace:
         return 0.0
 
-    billable_minutes = duration_minutes - grace
-    billable_hours = billable_minutes / 60.0
-
-    # Round up to nearest quarter-hour for billing
+    # Once past the grace period, every started hour of the stay is charged in
+    # full ("hora o fracción"): 16 min → 1 h, 61 min → 2 h.
     import math
-    billable_hours_rounded = math.ceil(billable_hours * 4) / 4
+    billed_hours = math.ceil(duration_minutes / 60.0)
 
-    amount = billable_hours_rounded * rate
+    amount = billed_hours * rate
     return float(math.ceil(max(amount, minimum)))

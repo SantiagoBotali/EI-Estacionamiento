@@ -96,7 +96,7 @@ run.py               — entry point (WindowsSelectorEventLoopPolicy para Window
 ## Reglas importantes del dominio
 
 - **Pago**: SOLO manual (escaneo de ticket o cobro en efectivo desde el panel). No hay cobro automático.
-- **Tarifa**: 15 min de gracia → $1200 ARS/hr (redondeo al cuarto de hora por exceso) → mínimo $300 ARS post-gracia. Valor almacenado en DB.
+- **Tarifa**: 15 min de gracia → pasada la gracia se cobra cada hora iniciada completa (`ceil(duración total / 60) × $1200 ARS/hr`, ej. 16 min = 1 h, 61 min = 2 h) → mínimo $300 ARS post-gracia. Valores en DB (editables en Operaciones). La lógica está duplicada en `app/services/tariff.py` y `computeLiveAmount` (admin y empleado): mantenerlas iguales.
 - **Visión**: El modelo SVC clasifica clase 0 = vacío, clase 1 = ocupado. Las features deben normalizarse `/255.0`. 14 spots totales.
 - **Camera auth**: El endpoint `/api/camera/feed` acepta JWT como query param `?token=xxx` (los `<img>` tags no pueden enviar Bearer headers).
 - **slot_vision_id**: Existe en el modelo `Stay` pero NO se muestra en la UI.

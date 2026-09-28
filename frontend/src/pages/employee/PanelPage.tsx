@@ -166,9 +166,8 @@ function computeLiveAmount(entryAtStr: string, tariff: TariffInfo | null): numbe
     if (isNaN(entryMs)) return 0
     const durationMin = Math.max(0, (Date.now() - entryMs) / 60_000)
     if (durationMin <= tariff.grace_period_minutes) return 0
-    const billableHours = (durationMin - tariff.grace_period_minutes) / 60
-    const billableRounded = Math.ceil(billableHours * 4) / 4   // round up to ¼ hr
-    const amount = billableRounded * tariff.rate_per_hour
+    const billedHours = Math.ceil(durationMin / 60)   // every started hour is charged in full
+    const amount = billedHours * tariff.rate_per_hour
     return isNaN(amount) ? 0 : Math.ceil(Math.max(amount, tariff.minimum_charge))
   } catch {
     return 0

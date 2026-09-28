@@ -17,6 +17,7 @@ import {
   requestCashPayment,
   createMPPreference,
   checkMPPaymentStatus,
+  getExitStatus,
   type ExitLookupResponse,
   type ExitPayResponse,
   type MPPreferenceResponse,
@@ -46,9 +47,9 @@ export function ExitPage() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
 
-  /* Auto-countdown after success or cash request */
+  /* Auto-countdown after a completed payment (a pending cash request waits with no time limit) */
   useEffect(() => {
-    if (phase !== 'success' && phase !== 'cash_requested') return
+    if (phase !== 'success') return
     setCountdown(10)
     const t = setInterval(() => {
       setCountdown((c) => {
@@ -91,10 +92,34 @@ export function ExitPage() {
     try {
       await requestCashPayment(lookupData.stay_id)
       setPhase('cash_requested')
+      startCashPolling(lookupData.stay_id)
     } catch (e) {
       setError((e as Error).message)
       setPhase('found')
     }
+  }
+
+  /* Wait (no time limit) until an employee registers the cash payment */
+  const startCashPolling = (stay_id: string) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const s = await getExitStatus(stay_id)
+        if (s.status === 'CLOSED') {
+          clearInterval(pollRef.current!)
+          pollRef.current = null
+          setPayResult({
+            stay_id: s.stay_id,
+            amount_paid: s.amount_paid,
+            payment_method: s.payment_method ?? 'CASH',
+            exit_at: s.exit_at ?? new Date().toISOString(),
+          })
+          setPhase('success')
+        }
+      } catch {
+        // network error during poll — silently retry
+      }
+    }, 3000)
   }
 
   const handleFreeExit = async () => {
@@ -183,8 +208,9 @@ export function ExitPage() {
         Mapa público
       </Link>
 
-      {/* Brand logo */}
-      <div className="absolute top-6 left-1/2 -translate-x-1/2">
+      {/* Brand logo — in the normal flow (not absolute) so tall cards like the
+          Mercado Pago QR push it up instead of covering it */}
+      <div className="mb-6 shrink-0">
         <img src={logoGeneral} alt="Sistema de Estacionamiento" className="h-14 w-auto object-contain" />
       </div>
 
@@ -545,18 +571,10 @@ export function ExitPage() {
                 </p>
               </div>
 
-              {/* Countdown bar */}
-              <div className="text-center">
-                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden mb-2">
-                  <div
-                    className="h-full bg-amber-500 transition-all duration-1000"
-                    style={{ width: `${(countdown / 10) * 100}%` }}
-                  />
-                </div>
-                <p className="text-slate-500 text-xs">
-                  Volviendo al inicio en{' '}
-                  <span className="text-amber-400 font-semibold">{countdown}s</span>
-                </p>
+              {/* Waits with no time limit until the employee confirms the payment */}
+              <div className="flex items-center justify-center gap-2 text-slate-500 text-xs">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                Esperando la confirmación del empleado…
               </div>
             </div>
           </div>
