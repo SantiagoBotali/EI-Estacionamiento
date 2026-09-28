@@ -200,9 +200,10 @@ def _seed_closed_stays(db: Session, first_day: datetime, now_ars: datetime):
         if bucket == 2: return random.randint(90, 180)   # long (90-180 min)
         return random.randint(180, 300)                  # very long (3-5 h)
 
-    rate = 1200.0
-    minimum = 300.0
-    grace = 15
+    # Tariff configured in the admin panel (Operaciones), stored in system_settings
+    rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
+    grace = int(get_setting(db, "grace_period_minutes", "15"))
 
     # Cash ratio varies monthly (recalculated at the start of each new month)
     current_seed_month = None

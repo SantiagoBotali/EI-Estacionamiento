@@ -285,6 +285,17 @@ async def kpis_rollup(
     revenue_by_period = [{"period": r.period, "amount": round(r.total, 2)} for r in rev_rows]
     total_revenue = sum(r.total for r in rev_rows)
 
+    # Average revenue per period (day/month/year), counting only periods with
+    # at least one payment — avoids skewing the average with years/days before
+    # the business had any activity.
+    avg_revenue_per_period = total_revenue / len(rev_rows) if rev_rows else 0.0
+
+    # Best period by revenue (ties resolved by revenue too, i.e. arbitrarily
+    # among equal amounts — max() keeps the first one found, in chronological order)
+    best_row = max(rev_rows, key=lambda r: r.total) if rev_rows else None
+    best_period = best_row.period if best_row else None
+    best_period_amount = round(best_row.total, 2) if best_row else 0.0
+
     pay_cnt_q = select(func.count(Payment.id)).where(
         Payment.status == PaymentStatus.APPROVED, ts_col >= scope_start
     )
@@ -320,6 +331,9 @@ async def kpis_rollup(
         avg_duration_min=round(avg_duration, 1),
         peak_period=peak_period,
         total_revenue=round(total_revenue, 2),
+        avg_revenue_per_period=round(avg_revenue_per_period, 2),
+        best_period=best_period,
+        best_period_amount=best_period_amount,
         avg_ticket=round(avg_ticket, 2),
         pending=round(float(pending), 2),
         stays_by_period=stays_by_period,

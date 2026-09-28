@@ -2,16 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Banknote, Camera, Car, ChevronRight, ClipboardList,
-  CreditCard, FileText, Loader2, LogOut, MapPin,
+  CreditCard, FileText, Loader2, LogOut,
   Plus, RefreshCw, Search, Sparkles, Users, X,
 } from 'lucide-react'
 import { getRole, getToken, getUsername, clearAuth } from '../../api/client'
 import logoGeneral from '../../../logos/logogeneral.png'
 import { useClock } from '../../hooks/useClock'
-import {
-  getParkingState,
-  type ParkingState,
-} from '../../api/parking'
 import {
   getActiveStays, lookupStay, createStay, closeCash,
   getEmployeeTariff, generateTodayStays,
@@ -19,19 +15,17 @@ import {
   type ActiveStay, type StayLookupResponse, type TariffInfo,
   type CashClosingPreview, type CashClosing,
 } from '../../api/employee'
-import { ParkingMap } from '../../components/ParkingMap'
-import { CameraFeed } from '../../components/CameraFeed'
+import { LiveMapCameraPanel } from '../../components/LiveMapCameraPanel'
 import { useToast } from '../../components/ui/Toast'
 import {
   formatCurrency, formatDateTime,
   getStatusBadge, getStatusLabel,
 } from '../../lib/utils'
 
-type Tab = 'map' | 'camera' | 'stays' | 'new' | 'cash'
+type Tab = 'live' | 'stays' | 'new' | 'cash'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
-  { id: 'map',    icon: <MapPin        className="w-5 h-5" />, label: 'Mapa en vivo' },
-  { id: 'camera', icon: <Camera        className="w-5 h-5" />, label: 'Cámara'       },
+  { id: 'live',   icon: <Camera        className="w-5 h-5" />, label: 'En vivo'      },
   { id: 'stays',  icon: <ClipboardList className="w-5 h-5" />, label: 'Estadías'     },
   { id: 'new',    icon: <Plus          className="w-5 h-5" />, label: 'Nueva estadía' },
   { id: 'cash',   icon: <Banknote      className="w-5 h-5" />, label: 'Caja'         },
@@ -43,7 +37,7 @@ const poppedCashRequests = new Set<string>()
 export function EmployeePanelPage() {
   const nav = useNavigate()
   const toast = useToast()
-  const [activeTab, setActiveTab] = useState<Tab>('map')
+  const [activeTab, setActiveTab] = useState<Tab>('live')
   const username = getUsername()
   const role = getRole()
   const clock = useClock()
@@ -154,82 +148,12 @@ export function EmployeePanelPage() {
       {/* ── Main content ── */}
       <main className="flex-1 overflow-auto">
         <div className="p-5 lg:p-7 animate-fade-in">
-          {activeTab === 'map'    && <MapTab    toast={toast} />}
-          {activeTab === 'camera' && <CameraTab />}
+          {activeTab === 'live'   && <LiveMapCameraPanel />}
           {activeTab === 'stays'  && <StaysTab  toast={toast} globalCashRequest={globalCashRequest} onClearGlobalRequest={() => setGlobalCashRequest(null)} />}
           {activeTab === 'new'    && <NewTab    toast={toast} />}
           {activeTab === 'cash'   && <CashTab   toast={toast} />}
         </div>
       </main>
-    </div>
-  )
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Tab: Mapa
-───────────────────────────────────────────────────────────── */
-function MapTab({ toast }: { toast: ReturnType<typeof useToast> }) {
-  const [state, setState] = useState<ParkingState | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  const load = useCallback(async () => {
-    try {
-      const s = await getParkingState()
-      setState(s)
-    } catch (e) {
-      toast('error', (e as Error).message)
-    } finally {
-      setLoading(false)
-    }
-  }, [toast])
-
-  useEffect(() => {
-    load()
-    const id = setInterval(load, 2000)
-    return () => clearInterval(id)
-  }, [load])
-
-  const free     = state?.free ?? 0
-  const total    = state?.total ?? 0
-  const occupied = total - free
-  const pct      = total ? Math.round(((total - free) / total) * 100) : 0
-
-  return (
-    <div className="space-y-5">
-      <SectionHeader icon={<MapPin className="w-5 h-5" />} title="Mapa en vivo" />
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiMini label="Libres"    value={free}     color="text-emerald-400" />
-        <KpiMini label="Ocupados"  value={occupied}  color="text-red-400"     />
-        <KpiMini label="Total"     value={total}     color="text-slate-200"   />
-        <KpiMini label="Ocupación" value={`${pct}%`} color={pct < 50 ? 'text-emerald-400' : pct < 80 ? 'text-amber-400' : 'text-red-400'} />
-      </div>
-
-      {loading ? (
-        <div className="h-64 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
-        </div>
-      ) : state ? (
-        <ParkingMap spots={state.spots} minHeight={380} />
-      ) : null}
-
-      {state && (
-        <p className="text-slate-700 text-xs text-right">
-          Actualizado: {new Date(state.last_updated).toLocaleTimeString('es-AR')}
-        </p>
-      )}
-    </div>
-  )
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Tab: Cámara
-───────────────────────────────────────────────────────────── */
-function CameraTab() {
-  return (
-    <div className="space-y-5">
-      <SectionHeader icon={<Camera className="w-5 h-5" />} title="Cámara en vivo" />
-      <CameraFeed className="w-full" style={{ aspectRatio: '16/9', maxHeight: 'calc(100vh - 7rem)' } as React.CSSProperties} />
     </div>
   )
 }
@@ -363,6 +287,11 @@ function StaysTab({ toast, globalCashRequest, onClearGlobalRequest }: { toast: R
       onClearGlobalRequest()
     }
   }, [globalCashRequest, onClearGlobalRequest])
+
+  // Ordenadas por ingreso (monto actual) descendente, no por ticket/orden de llegada
+  const sortedStays = [...stays].sort(
+    (a, b) => computeLiveAmount(b.entry_at, tariff) - computeLiveAmount(a.entry_at, tariff)
+  )
 
   // ── Render ───────────────────────────────────────────────
   return (
@@ -499,7 +428,7 @@ function StaysTab({ toast, globalCashRequest, onClearGlobalRequest }: { toast: R
                   </tr>
                 </thead>
                 <tbody>
-                  {stays.map((s) => {
+                  {sortedStays.map((s) => {
                     const liveAmount = computeLiveAmount(s.entry_at, tariff)
                     return (
                     <tr key={s.id} className="table-row">
@@ -918,15 +847,6 @@ function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }
     <div className="flex items-center gap-2.5 mb-1">
       <div className="text-blue-400">{icon}</div>
       <h2 className="text-lg font-bold text-white">{title}</h2>
-    </div>
-  )
-}
-
-function KpiMini({ label, value, color }: { label: string; value: string | number; color: string }) {
-  return (
-    <div className="card px-4 py-3">
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
-      <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">{label}</p>
     </div>
   )
 }

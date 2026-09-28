@@ -25,6 +25,9 @@ export interface RollupKPI {
   avg_duration_min: number
   peak_period?: string
   total_revenue: number
+  avg_revenue_per_period: number
+  best_period?: string
+  best_period_amount: number
   avg_ticket: number
   pending: number
   stays_by_period: { period: string; count: number }[]

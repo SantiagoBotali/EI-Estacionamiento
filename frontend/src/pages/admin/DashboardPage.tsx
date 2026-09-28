@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Activity, Banknote, BarChart2, Calendar, Camera, Car, ClipboardList, Clock, CreditCard,
   DollarSign, Download, FileText, Loader2, LogOut, Plus, Printer,
-  RefreshCw, Search, Settings, ShieldCheck, Sparkles, TrendingUp, Users, Wifi, WifiOff, X, Zap,
+  RefreshCw, Search, Settings, ShieldCheck, Sparkles, TrendingUp, Users, X, Zap,
 } from 'lucide-react'
 import {
   Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
@@ -21,11 +21,9 @@ import {
   listCashClosings,
   type ActiveStay, type StayLookupResponse, type TariffInfo, type CashClosing,
 } from '../../api/employee'
-import { CameraFeed } from '../../components/CameraFeed'
-import { ParkingMap, parkingMapAspect, MAP_TOOLBAR_H } from '../../components/ParkingMap'
+import { LiveMapCameraPanel } from '../../components/LiveMapCameraPanel'
 import { FinancialReportPrint } from '../../components/FinancialReportPrint'
 import { Modal } from '../../components/Modal'
-import { useParkingSSE } from '../../hooks/useParkingSSE'
 import { useClock } from '../../hooks/useClock'
 import { useToast } from '../../components/ui/Toast'
 import { formatCurrency, formatDateTime, formatDuration, getStatusBadge, getStatusLabel } from '../../lib/utils'
@@ -151,7 +149,7 @@ export function AdminDashboardPage() {
           {tab === 'stays'        && <StaysTab         toast={toast} />}
           {tab === 'dashboards' && <DashboardsTab toast={toast} />}
           {tab === 'reports' && <ReportsTab toast={toast} />}
-          {tab === 'live' && <LiveTab />}
+          {tab === 'live' && <LiveMapCameraPanel />}
         </div>
       </main>
     </div>
@@ -676,28 +674,23 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [selectedYear, setSelectedYear] = useState<string>('') // YYYY    (monthly)
   const [kpi, setKpi] = useState<FinanceKPI | null>(null)
   const [rollup, setRollup] = useState<RollupKPI | null>(null)
-  const [yearlyTotal, setYearlyTotal] = useState<number>(0)
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [chartKey, setChartKey] = useState(0) // increments on every successful fetch → forces pie remount
 
+  const requestId = useRef(0)
+
   const load = useCallback(async (gran: Granularity, month: string, yr: string) => {
+    const id = ++requestId.current
     try {
-      // Fetch yearly total separately only when no specific filter is active
-      const needYearly = gran !== 'yearly' && !month && !yr
-      const [k, r, y] = await Promise.all([
+      const [k, r] = await Promise.all([
         getFinanceKPI(),
         getRollupKPI(gran, month || undefined, yr || undefined),
-        needYearly ? getRollupKPI('yearly') : Promise.resolve(null),
       ])
+      if (id !== requestId.current) return // a newer request (e.g. granularity switch) superseded this one
       setKpi(k)
       setRollup(r)
       setChartKey(prev => prev + 1)
-      // yearly total sources:
-      //   granularity=yearly   → r is already historical
-      //   selectedYear active  → r.total_revenue is that year's total
-      //   otherwise            → y is the separate yearly fetch
-      setYearlyTotal(gran === 'yearly' || yr ? r.total_revenue : (y?.total_revenue ?? 0))
       setLastRefresh(new Date())
     } catch (e) {
       toast('error', (e as Error).message)
@@ -804,22 +797,25 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         )}
       </div>
 
+      {/* Right after switching granularity the previous period's data is still loaded:
+          show a spinner until it's replaced, instead of formatting it with the new granularity */}
+      {rollup?.granularity !== granularity ? <LoadingScreen /> : (<>
+
       {/* KPIs */}
-      {(() => {
-        const currentYear = new Date().getFullYear()
-        const yearlyLabel =
-          granularity === 'yearly' ? 'Total histórico' :
-            selectedYear ? `Total ${selectedYear}` :
-              `Total ${currentYear}`
-        return (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard icon={<DollarSign className="w-5 h-5" />} label="Ingresos hoy" value={formatCurrency(kpi?.ingresos_hoy ?? 0)} color="emerald" />
-            <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Ingresos del mes" value={formatCurrency(kpi?.ingresos_mes ?? 0)} color="blue" />
-            <KpiCard icon={<CreditCard className="w-5 h-5" />} label="Ticket promedio hoy" value={formatCurrency(kpi?.ticket_promedio ?? 0)} color="purple" />
-            <KpiCard icon={<TrendingUp className="w-5 h-5" />} label={yearlyLabel} value={formatCurrency(yearlyTotal)} color="amber" />
-          </div>
-        )
-      })()}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <KpiCard icon={<DollarSign className="w-5 h-5" />} label="Ingresos hoy" value={formatCurrency(kpi?.ingresos_hoy ?? 0)} color="emerald" />
+        <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Ingresos del mes" value={formatCurrency(kpi?.ingresos_mes ?? 0)} color="blue" />
+        <KpiCard icon={<CreditCard className="w-5 h-5" />} label="Ticket promedio hoy" value={formatCurrency(kpi?.ticket_promedio ?? 0)} color="purple" />
+        <KpiCard icon={<TrendingUp className="w-5 h-5" />} label={AVG_REVENUE_LABELS[granularity]} value={formatCurrency(rollup?.avg_revenue_per_period ?? 0)} color="amber" />
+        <KpiCard
+          icon={<Sparkles className="w-5 h-5" />}
+          label={BEST_PERIOD_LABELS[granularity]}
+          value={rollup?.best_period
+            ? <>{formatPeriodLabel(rollup.best_period, granularity)} <span className="font-normal">{formatCurrency(rollup.best_period_amount)}</span></>
+            : '—'}
+          color="red"
+        />
+      </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
@@ -851,90 +847,8 @@ function FinanceTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           )}
         </ChartCard>
       </div>
+      </>)}
 
-    </div>
-  )
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Tab: En vivo (cámara + mapa)
-───────────────────────────────────────────────────────────── */
-function LiveTab() {
-  const { state, status } = useParkingSSE()
-
-  const free     = state?.free ?? 0
-  const total    = state?.total ?? 0
-  const occupied = total - free
-  const pct      = total ? Math.round((occupied / total) * 100) : 0
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <SectionHeader icon={<Camera className="w-5 h-5" />} title="En vivo" />
-        <div className="flex items-center gap-1.5 text-xs">
-          {status === 'connected' && <Wifi className="w-3.5 h-3.5 text-emerald-400" />}
-          {status === 'connecting' && <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />}
-          {status === 'error' && <WifiOff className="w-3.5 h-3.5 text-red-400" />}
-          <span className={`font-medium text-xs
-            ${status === 'connected' ? 'text-emerald-400' : ''}
-            ${status === 'connecting' ? 'text-amber-400' : ''}
-            ${status === 'error' ? 'text-red-400' : ''}
-          `}>
-            {status === 'connected' ? 'En línea' : ''}
-            {status === 'connecting' ? 'Conectando…' : ''}
-            {status === 'error' ? 'Sin conexión' : ''}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiMini label="Libres"    value={free}     color="text-emerald-400" />
-        <KpiMini label="Ocupados"  value={occupied} color="text-red-400"     />
-        <KpiMini label="Total"     value={total}    color="text-slate-200"   />
-        <KpiMini label="Ocupación" value={`${pct}%`} color={pct < 50 ? 'text-emerald-400' : pct < 80 ? 'text-amber-400' : 'text-red-400'} />
-      </div>
-
-      {/* Column widths proportional to each aspect ratio → camera and map share the same height */}
-      <div
-        className="card p-4 grid grid-cols-1 xl:[grid-template-columns:var(--live-cols)] gap-5 items-start"
-        style={{
-          '--live-cols': `minmax(0, ${(16 / 9).toFixed(4)}fr) minmax(0, ${parkingMapAspect(state?.spots ?? []).toFixed(4)}fr)`,
-        } as React.CSSProperties}
-      >
-        {/* Camera */}
-        <div>
-          <div className="flex items-center mb-2" style={{ height: MAP_TOOLBAR_H }}>
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">Cámara</span>
-          </div>
-          <CameraFeed className="w-full" style={{ aspectRatio: '16/9' } as React.CSSProperties} />
-        </div>
-
-        {/* Map */}
-        <div>
-          {!state ? (
-            <div className="h-64 flex items-center justify-center">
-              <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
-            </div>
-          ) : (
-            <ParkingMap spots={state.spots} maxHeight={null} title="Mapa" className="w-full" />
-          )}
-        </div>
-      </div>
-
-      {state && (
-        <p className="text-slate-700 text-xs text-right">
-          Actualizado: {new Date(state.last_updated).toLocaleTimeString('es-AR')}
-        </p>
-      )}
-    </div>
-  )
-}
-
-function KpiMini({ label, value, color }: { label: string; value: string | number; color: string }) {
-  return (
-    <div className="card px-4 py-3">
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
-      <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">{label}</p>
     </div>
   )
 }
@@ -948,6 +862,18 @@ const GRAN_LABELS: Record<Granularity, string> = {
   daily: 'Diario',
   monthly: 'Mensual',
   yearly: 'Anual',
+}
+
+const AVG_REVENUE_LABELS: Record<Granularity, string> = {
+  daily: 'Ingreso diario promedio',
+  monthly: 'Ingreso mensual promedio',
+  yearly: 'Ingreso anual promedio',
+}
+
+const BEST_PERIOD_LABELS: Record<Granularity, string> = {
+  daily: 'Mejor día',
+  monthly: 'Mejor mes',
+  yearly: 'Mejor año',
 }
 
 const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -1093,15 +1019,20 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
+  const requestId = useRef(0)
+
   const load = useCallback(async (gran: Granularity, month: string, yr: string) => {
+    const id = ++requestId.current
     setLoading(true)
     try {
-      setKpi(await getRollupKPI(gran, month || undefined, yr || undefined))
+      const data = await getRollupKPI(gran, month || undefined, yr || undefined)
+      if (id !== requestId.current) return // a newer request (e.g. granularity switch) superseded this one
+      setKpi(data)
       setLastRefresh(new Date())
     } catch (e) {
-      toast('error', (e as Error).message)
+      if (id === requestId.current) toast('error', (e as Error).message)
     } finally {
-      setLoading(false)
+      if (id === requestId.current) setLoading(false)
     }
   }, [toast])
 
@@ -1171,11 +1102,6 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
           <span className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-full font-medium text-slate-400">
             {kpi.period_label}
           </span>
-          {kpi.peak_period && (
-            <span className="px-2.5 py-1 bg-purple-900/40 border border-purple-700/40 rounded-full text-purple-400">
-              Pico: {formatPeriodLabel(kpi.peak_period, granularity)}
-            </span>
-          )}
           {activeFilter && granularity !== 'yearly' && (
             <button
               onClick={() => { setSelectedMonth(''); setSelectedYear('') }}
@@ -1188,14 +1114,23 @@ function DashboardsTab({ toast }: { toast: ReturnType<typeof useToast> }) {
         </div>
       )}
 
-      {loading ? <LoadingScreen /> : (
+      {/* Also wait while the loaded data still belongs to the previous granularity */}
+      {loading || kpi?.granularity !== granularity ? <LoadingScreen /> : (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <KpiCard icon={<Car className="w-5 h-5" />} label="Total estadías" value={kpi?.total_stays ?? 0} color="blue" />
             <KpiCard icon={<Clock className="w-5 h-5" />} label="Duración promedio" value={formatDuration(kpi?.avg_duration_min ?? 0)} color="purple" />
-            <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Ingresos totales" value={formatCurrency(kpi?.total_revenue ?? 0)} color="emerald" />
+            <KpiCard icon={<TrendingUp className="w-5 h-5" />} label={AVG_REVENUE_LABELS[granularity]} value={formatCurrency(kpi?.avg_revenue_per_period ?? 0)} color="emerald" />
             <KpiCard icon={<CreditCard className="w-5 h-5" />} label="Ticket promedio" value={formatCurrency(kpi?.avg_ticket ?? 0)} color="amber" />
+            <KpiCard
+              icon={<Sparkles className="w-5 h-5" />}
+              label={BEST_PERIOD_LABELS[granularity]}
+              value={kpi?.best_period
+                ? <>{formatPeriodLabel(kpi.best_period, granularity)} <span className="font-normal">{formatCurrency(kpi.best_period_amount)}</span></>
+                : '—'}
+              color="red"
+            />
           </div>
 
           {/* Charts */}
@@ -1691,6 +1626,11 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
 
   const openCashModal = (stayId: string, amount: number) => setCashModal({ stayId, amount })
 
+  // Ordenadas por ingreso (monto actual) descendente, no por ticket/orden de llegada
+  const sortedStays = [...stays].sort(
+    (a, b) => computeLiveAmount(b.entry_at, tariff) - computeLiveAmount(a.entry_at, tariff)
+  )
+
   return (
     <div className="space-y-6">
       <SectionHeader icon={<ClipboardList className="w-5 h-5" />} title="Estadías" />
@@ -1817,7 +1757,7 @@ function StaysTab({ toast }: { toast: ReturnType<typeof useToast> }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {stays.map((s) => {
+                  {sortedStays.map((s) => {
                     const liveAmount = computeLiveAmount(s.entry_at, tariff)
                     return (
                       <tr key={s.id} className="table-row">
@@ -1992,7 +1932,7 @@ function KpiCard({
 }: {
   icon: React.ReactNode
   label: string
-  value: string | number
+  value: React.ReactNode
   color: KpiColor
 }) {
   const c = KPI_COLORS[color]

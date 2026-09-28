@@ -198,6 +198,8 @@ def generate_today_active_stays(
     from app.models import Payment, PaymentMethod, PaymentStatus
 
     rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
+    grace = int(get_setting(db, "grace_period_minutes", "15"))
 
     # ── Close all current active stays ───────────────────────────────────────
     active = (
@@ -208,8 +210,9 @@ def generate_today_active_stays(
         .all()
     )
     for stay in active:
-        entry = stay.entry_at if stay.entry_at.tzinfo else stay.entry_at.replace(tzinfo=timezone.utc)
-        amount = calculate_price(entry, now, rate_per_hour=rate)
+        # entry_at is stored as naive ARS wall-clock; calculate_price handles that as-is
+        # (marking it as UTC would add 3 hours to the billed duration)
+        amount = calculate_price(stay.entry_at, now, rate_per_hour=rate, minimum_charge=minimum, grace_period_minutes=grace)
         now_ars = now.replace(tzinfo=None) - timedelta(hours=3)
         stay.exit_at = now_ars
         stay.status = StayStatus.CLOSED
@@ -261,6 +264,8 @@ def get_active_stays(db: Session) -> list[Stay]:
     """Return all ACTIVE and PAYMENT_PENDING stays with amount_expected calculated."""
     from app.database import get_setting
     rate = float(get_setting(db, "rate_per_hour", "1200.0"))
+    minimum = float(get_setting(db, "minimum_charge", "300.0"))
+    grace = int(get_setting(db, "grace_period_minutes", "15"))
     now = datetime.now(timezone.utc)
 
     stmt = (
@@ -271,5 +276,7 @@ def get_active_stays(db: Session) -> list[Stay]:
     )
     stays = db.execute(stmt).scalars().all()
     for stay in stays:
-        stay.amount_expected = calculate_price(stay.entry_at, now, rate_per_hour=rate)
+        stay.amount_expected = calculate_price(
+            stay.entry_at, now, rate_per_hour=rate, minimum_charge=minimum, grace_period_minutes=grace,
+        )
     return stays

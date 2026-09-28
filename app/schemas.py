@@ -156,6 +156,9 @@ class RollupKPI(BaseModel):
     avg_duration_min: float
     peak_period: Optional[str]
     total_revenue: float
+    avg_revenue_per_period: float
+    best_period: Optional[str]
+    best_period_amount: float
     avg_ticket: float
     pending: float
     stays_by_period: list[dict]    # [{period, count}]
